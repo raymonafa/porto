@@ -1,61 +1,92 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-const asciiCharacters = ['⁕', '※', '⊙', '∘', '∀', '◐'];
+const asciiCharacters = ['⁕', '※', '⊙', '∘', '∀', '9', '1', '>', '-', '6'];
+
+const gridSize = 32; // Fixed size for all squares
 
 const MouseTrail = () => {
   const [trail, setTrail] = useState([]);
   const [visible, setVisible] = useState(false);
+  const [isHovering, setIsHovering] = useState(false); // <-- Tambahan
   const idleTimeout = useRef(null);
   const trailRef = useRef([]);
+
+  // Event listener untuk hover ke elemen interaktif
+  useEffect(() => {
+    const handleMouseOver = (e) => {
+      const target = e.target;
+      if (target.closest('button, a, [data-hover-interactive]')) {
+        setIsHovering(true);
+      }
+    };
+
+    const handleMouseOut = (e) => {
+      const related = e.relatedTarget;
+      if (!related || !related.closest('button, a, [data-hover-interactive]')) {
+        setIsHovering(false);
+      }
+    };
+
+    window.addEventListener('mouseover', handleMouseOver);
+    window.addEventListener('mouseout', handleMouseOut);
+
+    return () => {
+      window.removeEventListener('mouseover', handleMouseOver);
+      window.removeEventListener('mouseout', handleMouseOut);
+    };
+  }, []);
 
   useEffect(() => {
     const handleMouseMove = (event) => {
       setVisible(true);
       clearTimeout(idleTimeout.current);
 
-    const gridSize = Math.floor(Math.random() * 40) + 24; // 24px to 64px
-const gridOriginX = Math.random() * gridSize;
-const gridOriginY = Math.random() * gridSize;
+      // Snap mouse position to grid
+      const baseX = Math.round(event.clientX / gridSize) * gridSize;
+      const baseY = Math.round(event.clientY / gridSize) * gridSize;
 
-const spots = Array.from({ length: 4 }).map(() => {
-  const angle = Math.random() * 2 * Math.PI;
-  const radius = Math.random() * 4 * gridSize; // spread out more, but on grid
-  const offsetX = Math.cos(angle) * radius;
-  const offsetY = Math.sin(angle) * radius;
-  const randomChar = asciiCharacters[Math.floor(Math.random() * asciiCharacters.length)];
-  const snappedX = Math.round((x + offsetX - gridOriginX) / gridSize) * gridSize + gridOriginX;
-  const snappedY = Math.round((y + offsetY - gridOriginY) / gridSize) * gridSize + gridOriginY;
+      // Random offset for more organic trail
+      const offsetX = (Math.floor(Math.random() * 3) - 1) * gridSize;
+      const offsetY = (Math.floor(Math.random() * 3) - 1) * gridSize;
 
-  return {
-    x: snappedX,
-    y: snappedY,
-    char: randomChar,
-    id: Math.random().toString(36).substr(2, 9),
-    size: gridSize,
-    glitch: false,
-  };
-});
-// ...existing code...
+      const spot = {
+        x: baseX + offsetX,
+        y: baseY + offsetY,
+        char: asciiCharacters[Math.floor(Math.random() * asciiCharacters.length)],
+        id: Math.random().toString(36).substr(2, 9),
+        size: gridSize,
+        glitch: false,
+      };
 
-      const newTrail = [...trailRef.current, ...spots].slice(-40);
+      const newTrail = [...trailRef.current, spot].slice(-80);
       trailRef.current = newTrail;
       setTrail(newTrail);
 
-      // Idle timeout for glitch/blink effect
+      // Glitch effect: repeat a few times before clearing    
       idleTimeout.current = setTimeout(() => {
-        setTrail((oldTrail) =>
-          oldTrail.map((item) => ({
-            ...item,
-            glitch: Math.random() > 0.5,
-            char: asciiCharacters[Math.floor(Math.random() * asciiCharacters.length)],
-          }))
-        );
-        setTimeout(() => {
-          setTrail([]);
-          trailRef.current = [];
-          setVisible(false);
-        }, 200);
-      }, 600);
+        let glitchCount = 0;
+        const glitchInterval = setInterval(() => {
+          setTrail((oldTrail) =>
+            oldTrail.map((item) => ({
+              ...item,
+              glitch: true,
+              char: asciiCharacters[Math.floor(Math.random() * asciiCharacters.length)],
+              // Randomize position near the original mouse location
+              x: item.x + (Math.floor(Math.random() * 3) - 1) * gridSize,
+              y: item.y + (Math.floor(Math.random() * 3) - 1) * gridSize,
+            }))
+          );
+          glitchCount++;
+          if (glitchCount > 3) { // Number of glitch frames
+            clearInterval(glitchInterval);
+            setTimeout(() => {
+              setTrail([]);
+              trailRef.current = [];
+              setVisible(false);
+            }, 200);
+          }
+        }, 40); // Speed of glitch flicker
+      }, 900);
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -63,9 +94,10 @@ const spots = Array.from({ length: 4 }).map(() => {
       window.removeEventListener('mousemove', handleMouseMove);
       clearTimeout(idleTimeout.current);
     };
-  }, []); // Only run once
+  }, []);
 
-  if (!visible) return null;
+  // Jangan tampilkan trail kalau lagi hover
+  if (!visible || isHovering) return null;
 
   return (
     <>
@@ -83,16 +115,12 @@ const spots = Array.from({ length: 4 }).map(() => {
             width: `${size}px`,
             height: `${size}px`,
             background: 'black',
-          
             color: 'white',
             fontSize: `${size * 0.6}px`,
             fontFamily: 'monospace',
             userSelect: 'none',
             zIndex: 50,
             transform: 'translate(-50%, -50%)',
-            opacity: glitch ? Math.random() : 1,
-       
-            transition: 'opacity 0.1s, filter 0.1s',
           }}
         >
           {char}
