@@ -1,12 +1,68 @@
 // components/Navbar.js
-export default function Navbar() {
+"use client";
+import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import ShapeButton from "@/components/ShapeButton";
+
+const ascii = ["⁕","※","⊙","∘","∀","9","1",">","-","6"];
+
+export default function Navbar(){
+  const pathname = usePathname();
+  const originals = { manamona:"MANAMONA", works:"WORKS", who:"WHO" };
+  const [labels, setLabels] = useState(originals);
+  const iv = useRef({}), to = useRef({});
+
+  // ASCII burst hover (tetap)
+  const glitch = (t,p=0.45)=>t.split("").map(ch=>Math.random()<p?ascii[(Math.random()*ascii.length)|0]:ch).join("");
+  const stop = k => { if(iv.current[k]) clearInterval(iv.current[k]); if(to.current[k]) clearTimeout(to.current[k]); iv.current[k]=to.current[k]=null; setLabels(v=>({...v,[k]:originals[k]})); };
+  const start = (k,d=400)=>{ stop(k); iv.current[k]=setInterval(()=>setLabels(v=>({...v,[k]:glitch(originals[k])})),60); to.current[k]=setTimeout(()=>stop(k),d); };
+  useEffect(()=>()=>{Object.values(iv.current).forEach(clearInterval);Object.values(to.current).forEach(clearTimeout);},[]);
+
+  const isHome  = pathname === "/";
+  const isWork  = pathname.startsWith("/work");
+  const isAbout = pathname.startsWith("/about");
+
+  // 🔔 Orchestrate: kirim event sekali saat mount
+  useEffect(()=>{
+    const id = setTimeout(()=> window.dispatchEvent(new Event("mm:reveal:nav")), 50);
+    return ()=> clearTimeout(id);
+  },[]);
+
   return (
-    <nav className="absolute top-0 left-0 w-full p-6 flex justify-between text-sm uppercase tracking-widest z-20">
-      <div>Mana Mona</div>
-      <div className="space-x-4">
-        <a href="#work" className="hover:underline">Work</a>
-        <a href="#about" className="hover:underline">About</a>
-      </div>
+    <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-px pointer-events-auto" data-suppress-trail>
+      <ShapeButton
+        href="/"
+        label={labels.manamona}
+        shapeSrc="/buttons/button1.svg"
+        active={isHome}
+        spill
+        spillPadding={20}
+        revealDelay={0}         // urutan 1
+        onMouseEnter={()=>start("manamona")}
+        onMouseLeave={()=>stop("manamona")}
+      />
+      <ShapeButton
+        href="/work"
+        label={labels.works}
+        shapeSrc="/buttons/button2.svg"
+        active={isWork}
+        spill
+        spillPadding={20}
+        revealDelay={140}       // urutan 2
+        onMouseEnter={()=>start("works")}
+        onMouseLeave={()=>stop("works")}
+      />
+      <ShapeButton
+        href="/about"
+        label={labels.who}
+        shapeSrc="/buttons/button3.svg"
+        active={isAbout}
+        spill
+        spillPadding={20}
+        revealDelay={280}       // urutan 3
+        onMouseEnter={()=>start("who")}
+        onMouseLeave={()=>stop("who")}
+      />
     </nav>
-  )
+  );
 }

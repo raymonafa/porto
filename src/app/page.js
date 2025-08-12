@@ -1,150 +1,209 @@
-  'use client'
-  import Navbar from '@/components/Navbar'
-  import Canvas3D from '@/components/Canvas3D'
-  import MouseTrail from '@/components/MouseTrail'
-  import CenterCube from '@/components/CenterCube';
+// src/app/page.js
+"use client";
 
+import Canvas3D from "@/components/Canvas3D";
+import MouseTrail from "@/components/MouseTrail";
+import CenterCube from "@/components/CenterCube";
+import ShapeButton from "@/components/ShapeButton";
+import React, { useEffect, useRef, useState } from "react";
 
+const asciiCharacters = ["⁕", "※", "⊙", "∘", "∀", "9", "1", ">", "-", "6"];
 
-  import React, { useEffect, useState } from 'react';
+export default function Home() {
+  const texts = ["MANAMONA", "INDONESIA", "2025"];
+  const [typed, setTyped] = useState(["", "", ""]);
+  const [typingComplete, setTypingComplete] = useState(false);
+  const [glitchTexts, setGlitchTexts] = useState(["", "", ""]);
 
-  const asciiCharacters = ['⁕', '※', '⊙', '∘', '∀', '9', '1', '>', '-', '6'];
+  // ==== ASCII glitch BURST 0.4s (navbar) ====
+  const originals = { manamona: "MANAMONA", works: "WORKS", who: "WHO" };
+  const [navTexts, setNavTexts] = useState(originals);
+  const glitchIntervals = useRef({});
+  const glitchTimeouts = useRef({});
 
-  export default function Home() {
-    const texts = ['MANAMONA', 'INDONESIA', '2025'];
-    const [typed, setTyped] = useState(['', '', '']);
-    const [typingComplete, setTypingComplete] = useState(false);
-    const [glitchTexts, setGlitchTexts] = useState(['', '', '']); // For temporary glitch effects
+  const asciiGlitch = (text, intensity = 0.45) =>
+    text
+      .split("")
+      .map((ch) =>
+        Math.random() < intensity
+          ? asciiCharacters[Math.floor(Math.random() * asciiCharacters.length)]
+          : ch
+      )
+      .join("");
 
-    // Function to get a random ASCII character
-    const getRandomAscii = () => {
-      return asciiCharacters[Math.floor(Math.random() * asciiCharacters.length)];
+  const stopGlitch = (key) => {
+    if (glitchIntervals.current[key]) {
+      clearInterval(glitchIntervals.current[key]);
+      delete glitchIntervals.current[key];
+    }
+    if (glitchTimeouts.current[key]) {
+      clearTimeout(glitchTimeouts.current[key]);
+      delete glitchTimeouts.current[key];
+    }
+    setNavTexts((p) => ({ ...p, [key]: originals[key] }));
+  };
+
+  const startGlitch = (key, durationMs = 400) => {
+    stopGlitch(key);
+    glitchIntervals.current[key] = setInterval(() => {
+      setNavTexts((p) => ({ ...p, [key]: asciiGlitch(originals[key]) }));
+    }, 60);
+    glitchTimeouts.current[key] = setTimeout(() => stopGlitch(key), durationMs);
+  };
+
+  useEffect(() => {
+    return () => {
+      Object.values(glitchIntervals.current).forEach(clearInterval);
+      Object.values(glitchTimeouts.current).forEach(clearTimeout);
+      glitchIntervals.current = {};
+      glitchTimeouts.current = {};
     };
+  }, []);
+  // ==== end ====
 
-    useEffect(() => {
-      // Typing animation effect
-      texts.forEach((text, idx) => {
-        let i = 0;
-        const typeInterval = setInterval(() => {
-          setTyped(prev => {
-            const updated = [...prev];
-            // Show ASCII while typing, then show real text when done
-            if (i < text.length) {
-              updated[idx] = Array.from(text.slice(0, i + 1))
-                .map(() => asciiCharacters[Math.floor(Math.random() * asciiCharacters.length)])
-                .join('');
-            } else {
-              updated[idx] = text; // Show real text after typing
-            }
-            return updated;
-          });
-          i++;
-          if (i > text.length) clearInterval(typeInterval);
-        }, 100 + idx * 50);
+  const getRandomAscii = () =>
+    asciiCharacters[Math.floor(Math.random() * asciiCharacters.length)];
+
+  useEffect(() => {
+    texts.forEach((text, idx) => {
+      let i = 0;
+      const typeInterval = setInterval(() => {
+        setTyped((prev) => {
+          const u = [...prev];
+          if (i < text.length) {
+            u[idx] = Array.from(text.slice(0, i + 1))
+              .map(() => asciiCharacters[Math.floor(Math.random() * asciiCharacters.length)])
+              .join("");
+          } else {
+            u[idx] = text;
+          }
+          return u;
+        });
+        i++;
+        if (i > text.length) clearInterval(typeInterval);
+      }, 100 + idx * 50);
+    });
+
+    const maxTyping = Math.max(
+      ...texts.map((text, idx) => (text.length + 1) * (100 + idx * 50))
+    );
+    const t = setTimeout(() => setTypingComplete(true), maxTyping);
+    return () => clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    if (!typingComplete) return;
+    const iv = setInterval(() => {
+      setGlitchTexts((prev) => {
+        const u = [...prev];
+        texts.forEach((originalText, idx) => {
+          if (typed[idx] === originalText) {
+            u[idx] = Array.from(originalText)
+              .map((c) => (Math.random() > 0.9 ? getRandomAscii() : c))
+              .join("");
+          } else {
+            u[idx] = typed[idx];
+          }
+        });
+        return u;
       });
+    }, 100);
+    return () => clearInterval(iv);
+  }, [typingComplete, typed]);
 
-      // Set a timeout to mark typing as complete
-      const maxTypingTime = Math.max(...texts.map((text, idx) => (text.length + 1) * (100 + idx * 50)));
-      const typingCompleteTimeout = setTimeout(() => {
-        setTypingComplete(true);
-      }, maxTypingTime);
-
-      return () => clearTimeout(typingCompleteTimeout);
-    }, []);
-
-    // Effect for glitch animation after typing is complete
-    useEffect(() => {
-      if (!typingComplete) return;
-
-      const interval = setInterval(() => {
-        setGlitchTexts(prev => {
-          const updated = [...prev];
-          
-          texts.forEach((originalText, idx) => {
-            // Only apply glitch effect to fully typed texts
-            if (typed[idx] === originalText) {
-              // Create a glitch effect by randomly replacing some characters
-              updated[idx] = Array.from(originalText)
-                .map(char => Math.random() > 0.9 ? getRandomAscii() : char)
-                .join('');
-            } else {
-              updated[idx] = typed[idx];
-            }
-          });
-          
-          return updated;
+  useEffect(() => {
+    if (!typingComplete) return;
+    const iv = setInterval(() => {
+      setGlitchTexts((prev) => {
+        const u = [...prev];
+        texts.forEach((originalText, idx) => {
+          if (typed[idx] === originalText) u[idx] = originalText;
         });
-      }, 100); // Run glitch effect every 100ms
+        return u;
+      });
+    }, 300);
+    return () => clearInterval(iv);
+  }, [typingComplete, typed]);
 
-      return () => clearInterval(interval);
-    }, [typingComplete, typed]);
+  // 🔔 Orchestrate pixel-reveal untuk tombol (sekali saat page mount)
+  useEffect(() => {
+    const id = setTimeout(() => {
+      window.dispatchEvent(new Event("mm:reveal:nav"));
+    }, 50);
+    return () => clearTimeout(id);
+  }, []);
 
-    // Effect to reset glitch after a short time
-    useEffect(() => {
-      if (!typingComplete) return;
-      
-      const resetInterval = setInterval(() => {
-        setGlitchTexts(prev => {
-          const updated = [...prev];
-          texts.forEach((originalText, idx) => {
-            // Reset to original text if currently showing glitch
-            if (typed[idx] === originalText) {
-              updated[idx] = originalText;
-            }
-          });
-          return updated;
-        });
-      }, 300); // Reset glitch every 300ms
-      
-      return () => clearInterval(resetInterval);
-    }, [typingComplete, typed]);
-
-    return (
-      <main className="relative w-screen h-screen overflow-hidden bg-[#f8f8f8] text-black font-mono">
-        
-
+  return (
+    <main className="relative h-screen w-screen overflow-hidden bg-[#f8f8f8] font-mono text-black">
+      {/* Layer efek (tidak menghalangi klik) */}
+      <div className="pointer-events-none">
         <CenterCube />
         <MouseTrail />
+      </div>
 
-        {/* Glow blur hijau #D3FB43 */}
-        <div className="absolute inset-0 flex items-center justify-center z-0">
-          <div className="w-[600px] h-[600px] bg-[#D3FB43] rounded-full blur-[150px] opacity-50" />
+      {/* Glow blur hijau */}
+      <div className="absolute inset-0 z-0 flex items-center justify-center">
+        <div className="h-[600px] w-[600px] rounded-full bg-[#D3FB43] blur-[150px] opacity-50" />
+      </div>
+
+      {/* Headline */}
+      <div className="absolute inset-0 z-10 flex items-center justify-center">
+        <div className="flex flex-col items-center text-center leading-none">
+          <span className="text-[6rem] text-neutral-700 md:text-[10rem]">TECH</span>
+          <span className="text-[6rem] text-neutral-700 md:text-[10rem]">CRAFTER</span>
         </div>
+      </div>
 
-      {/* MAIN HEADING */}
-        <div className="absolute inset-0 flex items-center justify-center z-10">
-          <div className="flex flex-col items-center leading-none text-center">
-            <span className="text-[6rem] md:text-[10rem] tracking-none text-neutral-700">
-              TECH
-            </span>
-            <span className="text-[6rem] md:text-[10rem] tracking-none text-neutral-700">
-              CRAFTER
-            </span>
-          </div>
-        </div>
-
-        {/* Teks kecil kiri-tengah-kanan sep baris */}
-        <div className="absolute top-1/2 left-0 w-full px-10 flex justify-between pointer-events-none z-20 text-sm text-black">
+      {/* Teks kecil kiri & kanan */}
+      <div className="pointer-events-none absolute left-0 top-1/2 z-20 w-full px-10 text-sm text-black">
+        <div className="flex justify-between">
           <span>{glitchTexts[0] || typed[0]}</span>
-          {/* <span>{typed[1]}</span> */}
           <span>{glitchTexts[2] || typed[2]}</span>
         </div>
+      </div>
 
-        <div className="relative z-10 flex flex-col items-center justify-center h-full px-10 text-center">
-        
-        </div>
+      {/* Navbar bawah (shape SVG + ASCII burst + pixel reveal stagger) */}
+      <div
+        className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 flex items-center gap-px"
+        data-suppress-trail
+      >
+        <ShapeButton
+          href="/"
+          label={navTexts.manamona}
+          shapeSrc="/buttons/button1.svg"
+          active={true}
+          spill
+          spillPadding={12}
+          revealDelay={0}          // mulai duluan
+          onMouseEnter={() => startGlitch("manamona")}
+          onMouseLeave={() => stopGlitch("manamona")}
+        />
+        <ShapeButton
+          href="/work"
+          label={navTexts.works}
+          shapeSrc="/buttons/button2.svg"
+          spill
+          spillPadding={12}
+          revealDelay={140}        // menyusul
+          onMouseEnter={() => startGlitch("works")}
+          onMouseLeave={() => stopGlitch("works")}
+        />
+        <ShapeButton
+          href="/about"
+          label={navTexts.who}
+          shapeSrc="/buttons/button3.svg"
+          spill
+          spillPadding={12}
+          revealDelay={280}        // terakhir
+          onMouseEnter={() => startGlitch("who")}
+          onMouseLeave={() => stopGlitch("who")}
+        />
+      </div>
 
-     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-20 flex gap-1 text-sm font-mono">
-  <button data-hover-interactive className="bg-[#D3FB43] text-black px-4 py-1 rounded-l-full">WORKS</button>
-  <button data-hover-interactive className="bg-black text-white px-4 py-1">WHO</button>
-  <button data-hover-interactive className="bg-black text-white px-4 py-1 rounded-r-full">CONTACT</button>
-</div>
-
-
-      
-
-        {/* Canvas 3D */}
+      {/* Canvas 3D di layer bawah */}
+      <div className="relative z-0">
         <Canvas3D />
-      </main>
-    )
-  }
+      </div>
+    </main>
+  );
+}

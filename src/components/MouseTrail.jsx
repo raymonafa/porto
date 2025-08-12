@@ -1,51 +1,95 @@
-import React, { useEffect, useRef, useState } from 'react';
+// components/MouseTrail.jsx
+"use client";
+import React, { useEffect, useRef, useState } from "react";
 
-const asciiCharacters = ['⁕', '※', '⊙', '∘', '∀', '9', '1', '>', '-', '6'];
+const asciiCharacters = ["⁕", "※", "⊙", "∘", "∀", "9", "1", ">", "-", "6"];
+const gridSize = 32;
+const INTERACTIVE_SELECTOR = "button, a, [data-hover-interactive], [data-suppress-trail]";
 
-const gridSize = 32; // Fixed size for all squares
-
-const MouseTrail = () => {
+export default function MouseTrail() {
   const [trail, setTrail] = useState([]);
   const [visible, setVisible] = useState(false);
-  const [isHovering, setIsHovering] = useState(false); // <-- Tambahan
+  const [isHovering, setIsHovering] = useState(false);
+
+  // states baru untuk animasi hover
+  const [isScattering, setIsScattering] = useState(false);
+  const [fadeOut, setFadeOut] = useState(false);
+
   const idleTimeout = useRef(null);
   const trailRef = useRef([]);
+  const isHoveringRef = useRef(false);
 
-  // Event listener untuk hover ke elemen interaktif
+  // sinkron ref & trigger scatter saat mulai hover
   useEffect(() => {
-    const handleMouseOver = (e) => {
-      const target = e.target;
-      if (target.closest('button, a, [data-hover-interactive]')) {
-        setIsHovering(true);
-      }
+    isHoveringRef.current = isHovering;
+
+    if (isHovering && trailRef.current.length) {
+      // stop idle glitch
+      clearTimeout(idleTimeout.current);
+
+      setIsScattering(true);
+      setFadeOut(false);
+
+      let count = 0;
+      const scatter = setInterval(() => {
+        setTrail((old) =>
+          old.map((item) => ({
+            ...item,
+            char: asciiCharacters[Math.floor(Math.random() * asciiCharacters.length)],
+            x: item.x + (Math.floor(Math.random() * 3) - 1) * gridSize,
+            y: item.y + (Math.floor(Math.random() * 3) - 1) * gridSize,
+          }))
+        );
+        count++;
+        if (count > 3) {
+          clearInterval(scatter);
+          // setelah beberapa frame, fade out
+          setFadeOut(true);
+          setTimeout(() => {
+            setTrail([]);
+            trailRef.current = [];
+            setVisible(false);
+            setIsScattering(false);
+            setFadeOut(false);
+          }, 0); // durasi fade (ms)
+        }
+      }, 80);
+    }
+
+    // saat hover selesai, reset fade agar siap tampil lagi
+    if (!isHovering) {
+      setFadeOut(false);
+    }
+  }, [isHovering]);
+
+  // deteksi hover elemen interaktif
+  useEffect(() => {
+    const over = (e) => {
+      const t = e.target;
+      if (t && t.closest(INTERACTIVE_SELECTOR)) setIsHovering(true);
     };
-
-    const handleMouseOut = (e) => {
-      const related = e.relatedTarget;
-      if (!related || !related.closest('button, a, [data-hover-interactive]')) {
-        setIsHovering(false);
-      }
+    const out = (e) => {
+      const r = e.relatedTarget;
+      if (!r || !r.closest(INTERACTIVE_SELECTOR)) setIsHovering(false);
     };
-
-    window.addEventListener('mouseover', handleMouseOver);
-    window.addEventListener('mouseout', handleMouseOut);
-
+    window.addEventListener("mouseover", over);
+    window.addEventListener("mouseout", out);
     return () => {
-      window.removeEventListener('mouseover', handleMouseOver);
-      window.removeEventListener('mouseout', handleMouseOut);
+      window.removeEventListener("mouseover", over);
+      window.removeEventListener("mouseout", out);
     };
   }, []);
 
+  // mouse move → spawn trail (kecuali sedang hover)
   useEffect(() => {
-    const handleMouseMove = (event) => {
+    const handleMove = (event) => {
+      if (isHoveringRef.current) return;
+
       setVisible(true);
       clearTimeout(idleTimeout.current);
 
-      // Snap mouse position to grid
       const baseX = Math.round(event.clientX / gridSize) * gridSize;
       const baseY = Math.round(event.clientY / gridSize) * gridSize;
-
-      // Random offset for more organic trail
       const offsetX = (Math.floor(Math.random() * 3) - 1) * gridSize;
       const offsetY = (Math.floor(Math.random() * 3) - 1) * gridSize;
 
@@ -53,81 +97,88 @@ const MouseTrail = () => {
         x: baseX + offsetX,
         y: baseY + offsetY,
         char: asciiCharacters[Math.floor(Math.random() * asciiCharacters.length)],
-        id: Math.random().toString(36).substr(2, 9),
+        id: Math.random().toString(36).slice(2, 11),
         size: gridSize,
-        glitch: false,
       };
 
-      const newTrail = [...trailRef.current, spot].slice(-80);
-      trailRef.current = newTrail;
-      setTrail(newTrail);
+      const next = [...trailRef.current, spot].slice(-80);
+      trailRef.current = next;
+      setTrail(next);
 
-      // Glitch effect: repeat a few times before clearing    
+      // idle glitch seperti sebelumnya
       idleTimeout.current = setTimeout(() => {
         let glitchCount = 0;
-        const glitchInterval = setInterval(() => {
-          setTrail((oldTrail) =>
-            oldTrail.map((item) => ({
+        const glitch = setInterval(() => {
+          if (isHoveringRef.current) {
+            clearInterval(glitch);
+            setTrail([]);
+            trailRef.current = [];
+            setVisible(false);
+            return;
+          }
+          setTrail((old) =>
+            old.map((item) => ({
               ...item,
-              glitch: true,
               char: asciiCharacters[Math.floor(Math.random() * asciiCharacters.length)],
-              // Randomize position near the original mouse location
               x: item.x + (Math.floor(Math.random() * 3) - 1) * gridSize,
               y: item.y + (Math.floor(Math.random() * 3) - 1) * gridSize,
             }))
           );
           glitchCount++;
-          if (glitchCount > 3) { // Number of glitch frames
-            clearInterval(glitchInterval);
+          if (glitchCount > 3) {
+            clearInterval(glitch);
             setTimeout(() => {
               setTrail([]);
               trailRef.current = [];
               setVisible(false);
             }, 200);
           }
-        }, 40); // Speed of glitch flicker
+        }, 40);
       }, 900);
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener("mousemove", handleMove);
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener("mousemove", handleMove);
       clearTimeout(idleTimeout.current);
     };
   }, []);
 
-  // Jangan tampilkan trail kalau lagi hover
-  if (!visible || isHovering) return null;
+  // Render:
+  // - sembunyikan kalau tidak visible
+  // - saat hover: tetap render kalau sedang scatter (biar kelihatan animasinya)
+  if (!visible) return null;
+  if (isHovering && !isScattering) return null;
 
   return (
-    <>
-      {trail.map(({ x, y, char, id, size, glitch }) => (
+    <div
+      className="pointer-events-none fixed inset-0 z-40"
+      style={{ opacity: fadeOut ? 0 : 1, transition: "opacity 180ms ease-out" }}
+    >
+      {trail.map(({ x, y, char, id, size }) => (
         <span
           key={id}
           style={{
-            position: 'fixed',
+            position: "fixed",
             left: x,
             top: y,
-            pointerEvents: 'none',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            pointerEvents: "none",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
             width: `${size}px`,
             height: `${size}px`,
-            background: 'black',
-            color: 'white',
+            background: "black",
+            color: "white",
             fontSize: `${size * 0.6}px`,
-            fontFamily: 'monospace',
-            userSelect: 'none',
-            zIndex: 50,
-            transform: 'translate(-50%, -50%)',
+            fontFamily: "monospace",
+            userSelect: "none",
+            transform: "translate(-50%, -50%)",
           }}
         >
           {char}
         </span>
       ))}
-    </>
+    </div>
   );
-};
-
-export default MouseTrail;
+}
