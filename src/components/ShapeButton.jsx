@@ -13,9 +13,9 @@ export default function ShapeButton({
   onMouseEnter,
   onMouseLeave,
   // Reveal params (no flag, all via event)
-  pixelSize = 24,
-  frames = 5,
-  frameDur = 0.06,
+  pixelSize = 12,
+  frames = 4,
+  frameDur = 0.1,
   spill = false,
   spillPadding = 12,
   revealDelay = 0,  // ← delay per-button (ms)
@@ -47,8 +47,8 @@ export default function ShapeButton({
     const grid = document.createElement("div");
 
     // area grid (spill keluar shape)
-    const gw = spill ? WIDTH + spillPadding * 2 : WIDTH;
-    const gh = spill ? HEIGHT + spillPadding * 2 : HEIGHT;
+    const gw = spill ? WIDTH + spillPadding * 1 : WIDTH;
+    const gh = spill ? HEIGHT + spillPadding * 1 : HEIGHT;
 
     Object.assign(grid.style, {
       position: "absolute",

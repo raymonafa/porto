@@ -8,7 +8,7 @@ const ascii = ["⁕","※","⊙","∘","∀","9","1",">","-","6"];
 
 export default function Navbar(){
   const pathname = usePathname();
-  const originals = { manamona:"MANAMONA", works:"WORKS", who:"WHO" };
+  const originals = { manamona:"[MANAMONA]", works:"[WORKS]", who:"[WHO]" };
   const [labels, setLabels] = useState(originals);
   const iv = useRef({}), to = useRef({});
 

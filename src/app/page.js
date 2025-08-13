@@ -16,7 +16,7 @@ export default function Home() {
   const [glitchTexts, setGlitchTexts] = useState(["", "", ""]);
 
   // ==== ASCII glitch BURST 0.4s (navbar) ====
-  const originals = { manamona: "MANAMONA", works: "WORKS", who: "WHO" };
+  const originals = { manamona: "[MANAMONA]", works: "[WORKS]", who: "[WHO]" };
   const [navTexts, setNavTexts] = useState(originals);
   const glitchIntervals = useRef({});
   const glitchTimeouts = useRef({});
@@ -149,8 +149,18 @@ export default function Home() {
       {/* Headline */}
       <div className="absolute inset-0 z-10 flex items-center justify-center">
         <div className="flex flex-col items-center text-center leading-none">
-          <span className="text-[6rem] text-neutral-700 md:text-[10rem]">TECH</span>
-          <span className="text-[6rem] text-neutral-700 md:text-[10rem]">CRAFTER</span>
+          <span 
+          className="text-[6rem] text-neutral-700 md:text-[10rem]"
+          style={{ color: "#E7E7E7" }}
+          >
+            TECH
+          </span>
+          <span 
+          className="text-[6rem] text-neutral-700 md:text-[10rem]"
+          style={{ color: "#E7E7E7" }}
+          >
+            CRAFTER
+          </span>
         </div>
       </div>
 
