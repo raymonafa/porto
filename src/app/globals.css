@@ -1,7 +1,5 @@
+/* src/app/globals.css */
 @import "tailwindcss";
-
-
-
 
 :root {
   --background: #e7e7e7;
@@ -22,16 +20,11 @@
   }
 }
 
-
-
 html, body {
-  background: black;
+  background: #f8f8f8; /* was black */
   margin: 0;
   padding: 0;
-  overflow: hidden;
-}
-canvas {
-  display: block;
+  /* overflow: hidden;  ← hapus agar tidak mengganggu layout */
 }
 
-
+canvas { display: block; }

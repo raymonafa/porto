@@ -24,7 +24,6 @@ export default function MouseTrail() {
     isHoveringRef.current = isHovering;
 
     if (isHovering && trailRef.current.length) {
-      // stop idle glitch
       clearTimeout(idleTimeout.current);
 
       setIsScattering(true);
@@ -43,7 +42,6 @@ export default function MouseTrail() {
         count++;
         if (count > 3) {
           clearInterval(scatter);
-          // setelah beberapa frame, fade out
           setFadeOut(true);
           setTimeout(() => {
             setTrail([]);
@@ -51,18 +49,15 @@ export default function MouseTrail() {
             setVisible(false);
             setIsScattering(false);
             setFadeOut(false);
-          }, 0); // durasi fade (ms)
+          }, 0);
         }
       }, 80);
     }
 
-    // saat hover selesai, reset fade agar siap tampil lagi
-    if (!isHovering) {
-      setFadeOut(false);
-    }
+    if (!isHovering) setFadeOut(false);
   }, [isHovering]);
 
-  // deteksi hover elemen interaktif
+  // deteksi hover elemen interaktif (navbar/buttons/dll)
   useEffect(() => {
     const over = (e) => {
       const t = e.target;
@@ -77,6 +72,18 @@ export default function MouseTrail() {
     return () => {
       window.removeEventListener("mouseover", over);
       window.removeEventListener("mouseout", out);
+    };
+  }, []);
+
+  // NEW: custom event dari 3D model (hover supression)
+  useEffect(() => {
+    const on = () => setIsHovering(true);
+    const off = () => setIsHovering(false);
+    window.addEventListener("trail:suppress:on", on);
+    window.addEventListener("trail:suppress:off", off);
+    return () => {
+      window.removeEventListener("trail:suppress:on", on);
+      window.removeEventListener("trail:suppress:off", off);
     };
   }, []);
 
@@ -105,7 +112,7 @@ export default function MouseTrail() {
       trailRef.current = next;
       setTrail(next);
 
-      // idle glitch seperti sebelumnya
+      // idle glitch
       idleTimeout.current = setTimeout(() => {
         let glitchCount = 0;
         const glitch = setInterval(() => {
@@ -144,9 +151,6 @@ export default function MouseTrail() {
     };
   }, []);
 
-  // Render:
-  // - sembunyikan kalau tidak visible
-  // - saat hover: tetap render kalau sedang scatter (biar kelihatan animasinya)
   if (!visible) return null;
   if (isHovering && !isScattering) return null;
 

@@ -11,7 +11,7 @@ export default function My3DModel({ mouse }) {
   useFrame(({ clock }) => {
     if (group.current) {
       group.current.rotation.y = mouse.x * 0.2
-      group.current.rotation.x = mouse.y * 0.2
+      group.current.rotation.x = mouse.y * 0.1
       group.current.position.y = Math.sin(clock.getElapsedTime() * 1) * 0.1
     }
   })

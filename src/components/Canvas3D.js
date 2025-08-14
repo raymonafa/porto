@@ -1,15 +1,342 @@
 // components/Canvas3D.js
-import { Canvas } from '@react-three/fiber'
-import { OrbitControls } from '@react-three/drei'
+"use client";
 
-export default function Canvas3D() {
-  return (
-    <Canvas className="absolute top-0 left-0 w-full h-full z-0">
-      <ambientLight intensity={0.5} />
-      <directionalLight position={[5, 5, 5]} />
-     
-      <OrbitControls enableZoom={false} />
-    </Canvas>
-  )
+import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Environment, useGLTF, useAnimations } from "@react-three/drei";
+import {
+  EffectComposer,
+  Pixelation,
+  ChromaticAberration,
+  Noise,
+} from "@react-three/postprocessing";
+import * as THREE from "three";
+import { SkeletonUtils } from "three-stdlib";
+
+/* ================== KNOBS ================== */
+// Kamera
+const CAMERA_POS = [0, 1.2, 3];
+const CAMERA_FOV = 45;
+
+// Posisi/rotasi dasar objek (tanpa mouse)
+const BASE_OFFSET   = [0, 0, 0];            // geser objek (x,y,z)
+const BASE_ROTATION = deg([0, 180, 0]);     // rotasi dasar (deg → rad)
+
+// Follow mouse (rotasi)
+const MAX_TILT_X  = 0.15;
+const MAX_TILT_Y  = 0.30;
+const ROT_DAMPING = 0.08;
+
+// Auto-fit tinggi model
+const FIT_HEIGHT_RATIO = 0.55;
+const SCALE_MULTIPLIER = 1.3;
+
+// Pixel-glitch reveal
+const REVEAL_DURATION = 0.7;   // detik total
+const START_PIXELS    = 80;
+const END_PIXELS      = 1;
+const START_CHROMA    = 0.0024;
+const END_CHROMA      = 0.0001;
+
+// Clip klik acak
+const ALLOWED_CLIPS = ["walk", "idle", "win"];
+
+// ====== CRISP / PIXELATED SHADOW SETTINGS ======
+const SHADOW_MAP_SIZE = 256;     // turunin (64/32) untuk makin “pixelated”
+const SHADOW_OPACITY  = 0.15;     // gelap-terang bayangan
+const FLOOR_SIZE      = 12;      // lebar plane penerima bayangan
+
+// ==== Material tuning (anti-gloss) ====
+const MATERIAL_OVERRIDES = {
+  roughness: 1.0,        // 0..1 → 1 sangat matte
+  metalness: 0.0,        // 0 non-metal
+  envMapIntensity: 0.06, // turunkan pantulan HDRI
+  clearcoat: 0.0,        // untuk MeshPhysicalMaterial
+  clearcoatRoughness: 1.0,
+};
+// Set true kalau mau abaikan map bawaan GLB (roughnessMap/metalnessMap)
+const STRIP_ROUGH_METAL_MAPS = false;
+/* ============================================== */
+
+function deg([x, y, z]) {
+  return [x, y, z].map((v) => THREE.MathUtils.degToRad(v));
 }
-    
+
+/* ====== PIXEL-GLITCH REVEAL (tanpa flash white) ====== */
+function RevealFX({ trigger = 0 }) {
+  const [enabled, setEnabled] = useState(true);
+  const pixelRef = useRef(null);
+  const chromaOffset = useMemo(() => new THREE.Vector2(START_CHROMA, START_CHROMA), []);
+  const startRef = useRef(0);
+
+  useEffect(() => {
+    startRef.current = performance.now();
+    setEnabled(true);
+    chromaOffset.set(START_CHROMA, START_CHROMA);
+    if (pixelRef.current) pixelRef.current.granularity = START_PIXELS;
+  }, [trigger, chromaOffset]);
+
+  useFrame(() => {
+    if (!enabled) return;
+    const t = (performance.now() - startRef.current) / 1000;
+    const u = Math.min(t / REVEAL_DURATION, 1);
+    const e = 1 - Math.pow(1 - u, 3);
+
+    if (pixelRef.current) {
+      pixelRef.current.granularity = THREE.MathUtils.lerp(START_PIXELS, END_PIXELS, e);
+    }
+    chromaOffset.set(
+      THREE.MathUtils.lerp(START_CHROMA, END_CHROMA, e),
+      THREE.MathUtils.lerp(START_CHROMA, END_CHROMA, e)
+    );
+
+    if (u >= 1) setEnabled(false);
+  });
+
+  if (!enabled) return null;
+  return (
+    <EffectComposer multisampling={0}>
+      <Pixelation ref={pixelRef} granularity={START_PIXELS} />
+      <ChromaticAberration offset={chromaOffset} />
+      <Noise premultiply />
+    </EffectComposer>
+  );
+}
+
+/* ====== RIG FOLLOW MOUSE ====== */
+function FollowRig({ children, mouse }) {
+  const rig = useRef();
+  useFrame(() => {
+    const g = rig.current;
+    if (!g) return;
+    const tx = BASE_ROTATION[0] + (mouse?.y || 0) * MAX_TILT_X;
+    const ty = BASE_ROTATION[1] + (mouse?.x || 0) * MAX_TILT_Y;
+    g.rotation.x += (tx - g.rotation.x) * ROT_DAMPING;
+    g.rotation.y += (ty - g.rotation.y) * ROT_DAMPING;
+    g.rotation.z  = BASE_ROTATION[2];
+  });
+  return <group ref={rig}>{children}</group>;
+}
+
+/* ====== MODEL: clone fresh + pose reset + center + fit + shadow flags + material matte + anim ====== */
+function CenteredAnimatedModel({
+  url = "/models/model.glb",
+  initialClip = "Walk",
+  fitHeightRatio = FIT_HEIGHT_RATIO,
+  scaleMultiplier = SCALE_MULTIPLIER,
+  baseOffset = BASE_OFFSET,
+  onSwitchedClip,
+  onGroundY, // parent pakai untuk posisi plane bayangan
+}) {
+  const root = useRef();
+  const modelRef = useRef();
+  const { scene, animations } = useGLTF(url);
+  const cloned = useMemo(() => SkeletonUtils.clone(scene), [scene]);
+  const { actions, names, mixer } = useAnimations(animations, root);
+  const { camera, size } = useThree();
+  const [scale, setScale] = useState(1);
+
+  const nameMap = useMemo(() => {
+    const m = new Map();
+    names.forEach((n) => m.set(n.toLowerCase(), n));
+    return m;
+  }, [names]);
+
+  // Reset pose + center + enable cast/receive shadow + MATERIAL overrides (anti-gloss)
+  useEffect(() => {
+    const target = modelRef.current || cloned;
+    if (!target || !root.current) return;
+
+    target.traverse((o) => {
+      if (o.isSkinnedMesh && o.skeleton) o.skeleton.pose();
+      if (o.isMesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        mats.forEach((m) => {
+          if (!m) return;
+          if ("roughness" in m) m.roughness = MATERIAL_OVERRIDES.roughness;
+          if ("metalness" in m) m.metalness = MATERIAL_OVERRIDES.metalness;
+          if ("envMapIntensity" in m) m.envMapIntensity = MATERIAL_OVERRIDES.envMapIntensity;
+          if ("clearcoat" in m) m.clearcoat = MATERIAL_OVERRIDES.clearcoat;
+          if ("clearcoatRoughness" in m) m.clearcoatRoughness = MATERIAL_OVERRIDES.clearcoatRoughness;
+          if (STRIP_ROUGH_METAL_MAPS) {
+            if ("roughnessMap" in m) m.roughnessMap = null;
+            if ("metalnessMap" in m) m.metalnessMap = null;
+          }
+          m.needsUpdate = true;
+        });
+      }
+    });
+
+    target.updateWorldMatrix(true, true);
+    const box = new THREE.Box3().setFromObject(target);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+
+    root.current.position.set(
+      -center.x + baseOffset[0],
+      -center.y + baseOffset[1],
+      -center.z + baseOffset[2]
+    );
+  }, [cloned, baseOffset]);
+
+  // Auto-fit tinggi → scale + hitung groundY (bawah model)
+  useEffect(() => {
+    const target = modelRef.current || cloned;
+    if (!target) return;
+
+    target.updateWorldMatrix(true, true);
+    const box = new THREE.Box3().setFromObject(target);
+    const sizeVec = new THREE.Vector3();
+    box.getSize(sizeVec);
+
+    const worldH =
+      2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.position.length();
+    const targetH = worldH * fitHeightRatio;
+    const fitted  = (targetH / Math.max(sizeVec.y, 1e-6)) * scaleMultiplier;
+    setScale(fitted);
+
+    // bottom worldY sesudah center + scale
+    const groundY = -0.5 * sizeVec.y * fitted;
+    onGroundY?.(groundY);
+  }, [cloned, camera.fov, camera.position, size.width, size.height, fitHeightRatio, scaleMultiplier, onGroundY]);
+
+  // current action
+  const currentNameRef = useRef(null);
+
+  // Play awal
+  useEffect(() => {
+    if (!animations?.length) return;
+    const startName = nameMap.get(initialClip.toLowerCase()) ?? names[0];
+    const action = actions[startName];
+    if (!action) return;
+    currentNameRef.current = startName;
+    mixer.timeScale = 1;
+    action.reset().setLoop(THREE.LoopRepeat, Infinity).fadeIn(0.2).play();
+    return () => action.fadeOut(0.1);
+  }, [animations, actions, names, mixer, initialClip, nameMap]);
+
+  // Klik → random clip + crossfade + retrigger efek + suppress trail (klik)
+  const handlePointerDown = () => {
+    window.dispatchEvent(new Event("trail:suppress:on"));
+    setTimeout(() => window.dispatchEvent(new Event("trail:suppress:off")), 220);
+
+    if (!animations?.length) return;
+
+    const candidates = ALLOWED_CLIPS.map((n) => nameMap.get(n)).filter(Boolean);
+    if (!candidates.length) return;
+
+    let next = candidates[Math.floor(Math.random() * candidates.length)];
+    if (next === currentNameRef.current && candidates.length > 1) {
+      do { next = candidates[Math.floor(Math.random() * candidates.length)]; }
+      while (next === currentNameRef.current);
+    }
+
+    const nextAction = actions[next];
+    const currAction = currentNameRef.current ? actions[currentNameRef.current] : null;
+    if (!nextAction) return;
+
+    mixer.timeScale = 1;
+    nextAction.reset().setLoop(THREE.LoopRepeat, Infinity).fadeIn(0.25).play();
+    if (currAction) currAction.fadeOut(0.25);
+
+    currentNameRef.current = next;
+    onSwitchedClip?.(next);
+  };
+
+  return (
+    <group
+      ref={root}
+      scale={scale}
+      onPointerDown={handlePointerDown}
+      // sinkron dengan MouseTrail (hover = suppress)
+      onPointerOver={() => window.dispatchEvent(new Event("trail:suppress:on"))}
+      onPointerOut={() => window.dispatchEvent(new Event("trail:suppress:off"))}
+      onPointerLeave={() => window.dispatchEvent(new Event("trail:suppress:off"))}
+    >
+      <primitive ref={modelRef} object={cloned} />
+    </group>
+  );
+}
+useGLTF.preload("/models/model.glb");
+
+/* ====== MAIN CANVAS ====== */
+export default function Canvas3D() {
+  // mouse -1..1 (X), +1..-1 (Y)
+  const mouse = useRef({ x: 0, y: 0 });
+  useEffect(() => {
+    const onMove = (e) => {
+      mouse.current.x = (e.clientX / window.innerWidth - 0.5) * 2;
+      mouse.current.y = (e.clientY / window.innerHeight - 0.5) * -2;
+    };
+    window.addEventListener("mousemove", onMove, { passive: true });
+    return () => window.removeEventListener("mousemove", onMove);
+  }, []);
+
+  // trigger efek (mount & tiap ganti clip) — untuk RevealFX saja
+  const [fxTrigger, setFxTrigger] = useState(0);
+  // posisi Y floor/plane (diisi dari model)
+  const [groundY, setGroundY] = useState(-0.5);
+
+  return (
+    <Canvas
+      className="w-full h-full"
+      frameloop="always"
+      camera={{ position: CAMERA_POS, fov: CAMERA_FOV }}
+      dpr={[1, 2]}
+      style={{ touchAction: "none" }}
+      // ====== hard, pixel-like shadow ======
+      shadows={{ type: THREE.BasicShadowMap }}
+      onCreated={({ gl }) => {
+        gl.shadowMap.enabled = true;
+        gl.shadowMap.type = THREE.BasicShadowMap;
+      }}
+    >
+      {/* Lampu: aktifkan castShadow dan kecilkan mapSize untuk pixel effect */}
+     <ambientLight intensity={0} />
+      <directionalLight
+        position={[2, 12, 7]}
+        intensity={0.1}
+        castShadow
+        shadow-mapSize-width={SHADOW_MAP_SIZE}
+        shadow-mapSize-height={SHADOW_MAP_SIZE}
+        shadow-camera-near={0.1}
+        shadow-camera-far={24}
+        shadow-camera-left={-4}
+        shadow-camera-right={4}
+        shadow-camera-top={4}
+        shadow-camera-bottom={-1}
+        shadow-bias={-0.0008}   // kurangi acne
+      />
+
+      <Suspense fallback={null}>
+        {/* Glitch reveal only (no flash white) */}
+        <RevealFX trigger={fxTrigger} />
+
+        {/* Model + follow mouse */}
+        <FollowRig mouse={mouse.current}>
+          <CenteredAnimatedModel
+            url="/models/model.glb"
+            initialClip="Walk"
+            onSwitchedClip={() => setFxTrigger((t) => t + 1)}
+            onGroundY={setGroundY}
+          />
+        </FollowRig>
+
+        {/* Plane penerima bayangan: tegas & “pixelated” */}
+        <mesh
+          receiveShadow
+          rotation-x={-Math.PI / 2}
+          position={[0, groundY + 0.001, 0]}
+        >
+          <planeGeometry args={[FLOOR_SIZE, FLOOR_SIZE]} />
+          {/* ShadowMaterial: hanya menampilkan shadow, lantai transparan */}
+          <shadowMaterial transparent opacity={SHADOW_OPACITY} color="#000000" />
+        </mesh>
+
+        <Environment preset="studio" />
+      </Suspense>
+    </Canvas>
+  );
+}
