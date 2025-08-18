@@ -345,7 +345,7 @@
 
 
               {/* Headline (di bawah Canvas3D) */}
-              <div className="absolute inset-0 z-10 flex items-center justify-center">
+              {/* <div className="absolute inset-0 z-10 flex items-center justify-center">
                 <div className="flex flex-col items-center text-center leading-none">
                   <span className="text-[6rem] md:text-[10rem]" style={{ color: "#E7E7E7" }}>
                     TECH
@@ -354,7 +354,7 @@
                     CRAFTER
                   </span>
                 </div>
-              </div>
+              </div> */}
 
             {/* Navbar bawah */}
             <div

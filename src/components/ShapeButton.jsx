@@ -4,6 +4,7 @@ import TransitionLink from "@/components/TransitionLink";
 import React, { useLayoutEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import gsap from "gsap";
+import { useSfx } from "@/lib/sfx";
 
 export default function ShapeButton({
   href,
@@ -13,10 +14,10 @@ export default function ShapeButton({
   className = "",
   onMouseEnter,
   onMouseLeave,
-  // --- baru:
-  outerRef,              // ref ke elemen wrapper (buat di-animate dari luar)
-  disableAutoReveal = false, // matiin auto-reveal internal (kita animasi dari page.js)
-  revealOrder = 0,       // kalau suatu saat mau dipakai lagi
+  // --- props internal reveal:
+  outerRef,
+  disableAutoReveal = false,
+  revealOrder = 0,
 }) {
   const shapeColor = active ? "#D3FB43" : "#222222";
   const textColor  = active ? "#222222" : "#D3FB43";
@@ -25,14 +26,28 @@ export default function ShapeButton({
   const pathname = usePathname();
   const VISITED_KEY = "mm:navRevealedOnce";
 
-  // expose wrapper ke parent
+  // 🔊 hover SFX
+  const playHover = useSfx("/sfx/hover.mp3", {
+    volume: 0.45,
+    rate: [0.98, 1.05],
+    throttleMs: 120,
+  });
+
+  // 🔊 click SFX (baru)
+  const playClick = useSfx("/sfx/click.mp3", {
+    volume: 0.6,
+    rate: [0.98, 1.04],
+    throttleMs: 120,
+  });
+
+  // expose wrapper ke parent (untuk animasi dari page.js kalau perlu)
   useLayoutEffect(() => {
     if (!outerRef) return;
     if (typeof outerRef === "function") outerRef(wrapRef.current);
     else outerRef.current = wrapRef.current;
   }, [outerRef]);
 
-  // (opsional) auto-reveal internal — DIMATIKAN di homepage lewat prop
+  // auto-reveal di homepage sekali per session
   useLayoutEffect(() => {
     if (disableAutoReveal) return;
     if (typeof window === "undefined") return;
@@ -55,6 +70,24 @@ export default function ShapeButton({
     return () => tl.kill();
   }, [pathname, disableAutoReveal, revealOrder]);
 
+  const handleEnter = (e) => {
+    playHover();
+    onMouseEnter?.(e);
+  };
+  const handleLeave = (e) => onMouseLeave?.(e);
+
+  // mainkan SFX saat pointer down (lebih cepat dari click)
+  const handlePointerDown = () => {
+    playClick();
+  };
+
+  // opsional: keyboard accessibility (Enter/Space)
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      playClick();
+    }
+  };
+
   return (
     <div
       ref={wrapRef}
@@ -64,8 +97,10 @@ export default function ShapeButton({
       <TransitionLink
         href={href}
         className="absolute inset-0 block"
-        onMouseEnter={onMouseEnter}
-        onMouseLeave={onMouseLeave}
+        onMouseEnter={handleEnter}
+        onMouseLeave={handleLeave}
+        onPointerDown={handlePointerDown}
+        onKeyDown={handleKeyDown}
         data-hover-interactive
       >
         {/* SHAPE (masked) */}

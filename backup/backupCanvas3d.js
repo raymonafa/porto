@@ -3,7 +3,7 @@
 
 import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { useGLTF, useAnimations } from "@react-three/drei";
+import { Environment, useGLTF, useAnimations } from "@react-three/drei";
 import { EffectComposer, Pixelation, ChromaticAberration, Noise } from "@react-three/postprocessing";
 import * as THREE from "three";
 import { SkeletonUtils } from "three-stdlib";
@@ -33,16 +33,19 @@ const END_PIXELS      = 1;
 const PIXEL_STEPS     = 4;     // step glitch (set 0/1 untuk halus)
 
 // Chromatic Aberration & Noise (tanpa glow)
-const CA_START = 0.0015;
-const CA_END   = 0.0001;
+const CA_START = 0.001;
+const CA_END   = 0.001;
 const NOISE_OPACITY = 0.15;
 
-// Shadow “pixelated”
+// Clip klik acak
+const ALLOWED_CLIPS = ["walk", "idle", "win"];
+
+// ====== CRISP / PIXELATED SHADOW SETTINGS ======
 const SHADOW_MAP_SIZE = 256;
-const SHADOW_OPACITY  = 0.18;
+const SHADOW_OPACITY  = 0.15;
 const FLOOR_SIZE      = 12;
 
-// Material matte
+// ==== Material tuning (anti-gloss) ====
 const MATERIAL_OVERRIDES = {
   roughness: 1.0,
   metalness: 0.0,
@@ -50,73 +53,15 @@ const MATERIAL_OVERRIDES = {
   clearcoat: 0.0,
   clearcoatRoughness: 1.0,
 };
+// Abaikan map dari GLB jika perlu
 const STRIP_ROUGH_METAL_MAPS = false;
-
-// Clip klik acak
-const ALLOWED_CLIPS = ["walk", "idle", "win"];
-
-// SFX (klik & hover)
-const SFX_URL        = "/sfx/change.mp3";
-const SFX_VOLUME     = 0.6;
-const SFX_RATE       = [0.96, 1.06];
-
-const HOVER_SFX_URL  = "/sfx/hover.mp3";
-const HOVER_SFX_VOL  = 0.45;
-const HOVER_SFX_RATE = [0.98, 1.05];
 /* ============================================== */
 
 function deg([x, y, z]) {
   return [x, y, z].map((v) => THREE.MathUtils.degToRad(v));
 }
 
-/* ====== SFX HOOK (Web Audio) ====== */
-function useSwitchSfx(url = SFX_URL, volume = SFX_VOLUME, rate = SFX_RATE) {
-  const ctxRef = useRef(null);
-  const gainRef = useRef(null);
-  const bufferRef = useRef(null);
-  const lastPlayRef = useRef(0);
-
-  useEffect(() => {
-    let mounted = true;
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    const ctx = new Ctx();
-    ctxRef.current = ctx;
-
-    const gain = ctx.createGain();
-    gain.gain.value = volume;
-    gain.connect(ctx.destination);
-    gainRef.current = gain;
-
-    fetch(url)
-      .then((r) => r.arrayBuffer())
-      .then((ab) => ctx.decodeAudioData(ab))
-      .then((buf) => { if (mounted) bufferRef.current = buf; })
-      .catch(() => { /* ignore */ });
-
-    return () => { mounted = false; /* biarkan ctx hidup */ };
-  }, [url, volume]);
-
-  const play = () => {
-    const ctx = ctxRef.current, buf = bufferRef.current, gain = gainRef.current;
-    if (!ctx || !buf || !gain) return;
-
-    if (ctx.state === "suspended") ctx.resume();
-    const now = performance.now();
-    if (now - lastPlayRef.current < 120) return;   // throttle
-    lastPlayRef.current = now;
-
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    const [minR, maxR] = rate;
-    src.playbackRate.value = minR + Math.random() * (maxR - minR);
-    src.connect(gain);
-    src.start(0);
-  };
-
-  return play;
-}
-
-/* ====== PIXEL-GLITCH REVEAL ====== */
+/* ====== PIXEL-GLITCH REVEAL (Pixelation + CA kecil + Noise non-glow) ====== */
 function RevealFX({ trigger = 0 }) {
   const [enabled, setEnabled] = useState(true);
   const pixelRef = useRef(null);
@@ -135,6 +80,7 @@ function RevealFX({ trigger = 0 }) {
     const t = (performance.now() - startRef.current) / 1000;
     const u = Math.min(t / REVEAL_DURATION, 1);
 
+    // stepped glitch
     let g;
     if (PIXEL_STEPS && PIXEL_STEPS > 1) {
       const stepIndex = Math.floor(u * (PIXEL_STEPS - 1));
@@ -143,8 +89,10 @@ function RevealFX({ trigger = 0 }) {
     } else {
       g = THREE.MathUtils.lerp(START_PIXELS, END_PIXELS, u);
     }
+
     if (pixelRef.current) pixelRef.current.granularity = g;
 
+    // CA sangat kecil → tidak bleeding/glow
     chromaOffset.set(
       THREE.MathUtils.lerp(CA_START, CA_END, u),
       THREE.MathUtils.lerp(CA_START, CA_END, u)
@@ -157,7 +105,11 @@ function RevealFX({ trigger = 0 }) {
   return (
     <EffectComposer multisampling={0}>
       <Pixelation ref={pixelRef} granularity={START_PIXELS} />
-      <ChromaticAberration offset={chromaOffset} radialModulation={false} modulationOffset={0} />
+      <ChromaticAberration
+        offset={chromaOffset}
+        radialModulation={false}
+        modulationOffset={0}
+      />
       <Noise premultiply={false} opacity={NOISE_OPACITY} />
     </EffectComposer>
   );
@@ -187,7 +139,6 @@ function CenteredAnimatedModel({
   baseOffset = BASE_OFFSET,
   onSwitchedClip,
   onGroundY,
-  onHoverSfx,               // ⬅️ NEW: callback play hover sfx
 }) {
   const root = useRef();
   const modelRef = useRef();
@@ -208,28 +159,45 @@ function CenteredAnimatedModel({
     const target = modelRef.current || cloned;
     if (!target || !root.current) return;
 
-    target.traverse((o) => {
-      if (o.isSkinnedMesh && o.skeleton) o.skeleton.pose();
-      if (o.isMesh) {
-        o.castShadow = true;
-        o.receiveShadow = false;    // hindari self-shadow acne
-        const mats = Array.isArray(o.material) ? o.material : [o.material];
-        mats.forEach((m) => {
-          if (!m) return;
-          if ("roughness" in m) m.roughness = MATERIAL_OVERRIDES.roughness;
-          if ("metalness" in m) m.metalness = MATERIAL_OVERRIDES.metalness;
-          if ("envMapIntensity" in m) m.envMapIntensity = MATERIAL_OVERRIDES.envMapIntensity;
-          if ("clearcoat" in m) m.clearcoat = MATERIAL_OVERRIDES.clearcoat;
-          if ("clearcoatRoughness" in m) m.clearcoatRoughness = MATERIAL_OVERRIDES.clearcoatRoughness;
-          if (STRIP_ROUGH_METAL_MAPS) {
-            if ("roughnessMap" in m) m.roughnessMap = null;
-            if ("metalnessMap" in m) m.metalnessMap = null;
-          }
-          m.shadowSide = THREE.BackSide; // stabil cast shadow
-          m.needsUpdate = true;
-        });
+ target.traverse((o) => {
+  if (o.isSkinnedMesh && o.skeleton) o.skeleton.pose();
+
+  if (o.isMesh) {
+    o.castShadow = true;
+    o.receiveShadow = false;           // ⬅️ penting: hentikan self-shadow di badan
+
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    mats.forEach((m) => {
+      if (!m) return;
+
+      // anti-gloss (punyamu)
+      if ("roughness" in m) m.roughness = 1.0;
+      if ("metalness" in m) m.metalness = 0.0;
+      if ("envMapIntensity" in m) m.envMapIntensity = 0.06;
+      if ("clearcoat" in m) m.clearcoat = 0.0;
+      if ("clearcoatRoughness" in m) m.clearcoatRoughness = 1.0;
+
+      // stabilkan shadow casting: gunakan backface untuk shadow map
+      m.shadowSide = THREE.BackSide;
+
+      // bila ada material transparan, ubah ke cutout agar depth stabil
+      if (m.transparent) {
+        m.transparent = false;
+        m.alphaTest   = Math.max(m.alphaTest ?? 0, 0.5); // 0.3–0.6 sesuai tekstur
+        m.depthWrite  = true;
+        m.depthTest   = true;
       }
+
+      // (opsional) kalau curiga peta metal/rough bikin noise:
+      // m.roughnessMap = null;
+      // m.metalnessMap = null;
+
+      m.needsUpdate = true;
     });
+  }
+});
+
+
 
     target.updateWorldMatrix(true, true);
     const box = new THREE.Box3().setFromObject(target);
@@ -243,7 +211,7 @@ function CenteredAnimatedModel({
     );
   }, [cloned, baseOffset]);
 
-  // auto-fit + groundY
+  // auto-fit tinggi + groundY
   useEffect(() => {
     const target = modelRef.current || cloned;
     if (!target) return;
@@ -263,6 +231,7 @@ function CenteredAnimatedModel({
     onGroundY?.(groundY);
   }, [cloned, camera.fov, camera.position, size.width, size.height, fitHeightRatio, scaleMultiplier, onGroundY]);
 
+  // current action
   const currentNameRef = useRef(null);
 
   // play awal
@@ -277,7 +246,7 @@ function CenteredAnimatedModel({
     return () => action.fadeOut(0.1);
   }, [animations, actions, names, mixer, initialClip, nameMap]);
 
-  // click → random clip + crossfade + callback (FX + SFX)
+  // click → random clip + crossfade + retrigger FX + suppress trail
   const handlePointerDown = () => {
     window.dispatchEvent(new Event("trail:suppress:on"));
     setTimeout(() => window.dispatchEvent(new Event("trail:suppress:off")), 220);
@@ -302,18 +271,7 @@ function CenteredAnimatedModel({
     if (currAction) currAction.fadeOut(0.25);
 
     currentNameRef.current = next;
-    onSwitchedClip?.(next);        // retrigger FX + play switch SFX
-  };
-
-  // ⬅️ NEW: play hover sfx sekali saat pointer masuk
-  const playedHoverRef = useRef(false);
-  const handlePointerOver = () => {
-    window.dispatchEvent(new Event("trail:suppress:on"));
-    if (!playedHoverRef.current) { onHoverSfx?.(); playedHoverRef.current = true; }
-  };
-  const handlePointerOut = () => {
-    window.dispatchEvent(new Event("trail:suppress:off"));
-    playedHoverRef.current = false; // reset biar next masuk bisa bunyi lagi
+    onSwitchedClip?.(next);
   };
 
   return (
@@ -321,9 +279,9 @@ function CenteredAnimatedModel({
       ref={root}
       scale={scale}
       onPointerDown={handlePointerDown}
-      onPointerOver={handlePointerOver}
-      onPointerOut={handlePointerOut}
-      onPointerLeave={handlePointerOut}
+      onPointerOver={() => window.dispatchEvent(new Event("trail:suppress:on"))}
+      onPointerOut={() => window.dispatchEvent(new Event("trail:suppress:off"))}
+      onPointerLeave={() => window.dispatchEvent(new Event("trail:suppress:off"))}
     >
       <primitive ref={modelRef} object={cloned} />
     </group>
@@ -344,12 +302,8 @@ export default function Canvas3D() {
     return () => window.removeEventListener("mousemove", onMove);
   }, []);
 
-  const [fxTrigger, setFxTrigger] = useState(0);
+  const [fxTrigger, setFxTrigger] = useState(0); // mount & on clip switch
   const [groundY, setGroundY] = useState(-0.5);
-
-  // SFX (klik & hover)
-  const playSwitchSfx = useSwitchSfx(SFX_URL, SFX_VOLUME, SFX_RATE);
-  const playHoverSfx  = useSwitchSfx(HOVER_SFX_URL, HOVER_SFX_VOL, HOVER_SFX_RATE);
 
   return (
     <Canvas
@@ -358,14 +312,13 @@ export default function Canvas3D() {
       camera={{ position: CAMERA_POS, fov: CAMERA_FOV }}
       dpr={[1, 2]}
       style={{ touchAction: "none" }}
-      gl={{ antialias: false, powerPreference: "high-performance" }}
+      gl={{ antialias: false, powerPreference: "high-performance" }}  // cegah smoothing/bleed
       shadows={{ type: THREE.BasicShadowMap }}
       onCreated={({ gl }) => {
         gl.shadowMap.enabled = true;
         gl.shadowMap.type = THREE.BasicShadowMap;
-        gl.toneMapping = THREE.NoToneMapping;
+        gl.toneMapping = THREE.NoToneMapping;   // no glow dari tone mapping
         gl.toneMappingExposure = 1;
-        gl.outputColorSpace = THREE.SRGBColorSpace;
       }}
     >
       {/* lighting untuk shadow tegas */}
@@ -382,35 +335,35 @@ export default function Canvas3D() {
         shadow-camera-right={4}
         shadow-camera-top={4}
         shadow-camera-bottom={-1}
-        shadow-bias={0.0002}
-        shadow-normalBias={0.25}
-      >
-        <object3D position={[0, groundY, 0]} />
-      </directionalLight>
+        shadow-bias={-0.0002}
+        shadow-normalBias={0.25}  
+      />
 
       <Suspense fallback={null}>
-        {/* Pixelation + CA/Noise aman */}
+        {/* Pixelation + CA/Noise aman (tanpa glow) */}
         <RevealFX trigger={fxTrigger} />
 
-        {/* Model + follow mouse; saat clip switch → FX + SFX */}
+        {/* Model + follow mouse */}
         <FollowRig mouse={mouse.current}>
           <CenteredAnimatedModel
             url="/models/model.glb"
             initialClip="Walk"
-            onSwitchedClip={() => {
-              setFxTrigger((t) => t + 1);
-              playSwitchSfx();
-            }}
-            onHoverSfx={playHoverSfx}   // ⬅️ NEW
+            onSwitchedClip={() => setFxTrigger((t) => t + 1)}
             onGroundY={setGroundY}
           />
         </FollowRig>
 
         {/* Plane penerima bayangan */}
-        <mesh receiveShadow rotation-x={-Math.PI / 2} position={[0, groundY + 0.001, 0]}>
+        <mesh
+          receiveShadow
+          rotation-x={-Math.PI / 2}
+          position={[0, groundY + 0.001, 0]}
+        >
           <planeGeometry args={[FLOOR_SIZE, FLOOR_SIZE]} />
-          <shadowMaterial transparent opacity={SHADOW_OPACITY} color="#000" />
+          <shadowMaterial transparent opacity={SHADOW_OPACITY} color="#000000" />
         </mesh>
+
+        {/* <Environment preset="studio" /> */}
       </Suspense>
     </Canvas>
   );
