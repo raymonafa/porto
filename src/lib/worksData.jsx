@@ -8,7 +8,7 @@ export const WORKS = [
     logoText: "LOGO",          // atau logoSrc: "/logos/alpha.svg"
     year: "2024",
     tag: "UI/UX",
-    bg: "/works/alpha.jpg",    // opsional, kalau kosong akan muncul placeholder
+    bg: "/images/alpha.png",    // opsional, kalau kosong akan muncul placeholder
   },
   {
     id: "w2",
@@ -18,7 +18,7 @@ export const WORKS = [
     logoText: "β",
     year: "2023",
     tag: "Web",
-    bg: "/works/beta.jpg",
+    bg: "/images/beta.png",
   },
   {
     id: "w3",
@@ -28,7 +28,7 @@ export const WORKS = [
     logoText: "G",
     year: "2022",
     tag: "Brand",
-    bg: "/works/gamma.jpg",
+    bg: "/images/gamma.png",
   },
   {
     id: "w4",
@@ -38,7 +38,7 @@ export const WORKS = [
     logoText: "Δ",
     year: "2021",
     tag: "3D",
-    bg: "/works/delta.jpg",
+    bg: "/images/delta.png",
   },
   {
     id: "w5",
@@ -48,7 +48,7 @@ export const WORKS = [
     logoText: "EPS",
     year: "2020",
     tag: "UI/UX",
-    bg: "/works/epsilon.jpg",
+    bg: "/images/epsilon.png",
   },
   {
     id: "w6",
@@ -58,7 +58,7 @@ export const WORKS = [
     logoText: "ZETA",
     year: "2024",
     tag: "Motion",
-    bg: "/works/zeta.jpg",
+    bg: "/images/zeta.png",
   },
   {
     id: "w7",
@@ -68,7 +68,7 @@ export const WORKS = [
     logoText: "ETA",
     year: "2022",
     tag: "Web",
-    bg: "/works/eta.jpg",
+    bg: "/images/eta.png",
   },
   {
     id: "w8",
@@ -78,6 +78,6 @@ export const WORKS = [
     logoText: "TH",
     year: "2025",
     tag: "Product",
-    bg: "/works/theta.jpg",
+    bg: "/images/theta.png",
   },
 ];

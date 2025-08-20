@@ -44,7 +44,7 @@ const FLOOR_SIZE      = 12;
 
 // Material matte
 const MATERIAL_OVERRIDES = {
-  roughness: 1.0,
+  roughness: 0.5,
   metalness: 0.0,
   envMapIntensity: 0.06,
   clearcoat: 0.0,
