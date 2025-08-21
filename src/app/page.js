@@ -154,7 +154,8 @@ export default function Home() {
     });
   }, [isMounted, overlayActive, typingComplete]);
 
-  // Konten dimount → fade-in konten & fade-out overlay, lalu beri sinyal ke Navbar
+  // Konten dimount → fade-in konten & fade-out overlay,
+  // lalu kirim sinyal ke Navbar *dan* ke AudioProvider (autoplay)
   useEffect(() => {
     if (!showContent) return;
     if (!contentRef.current || !overlayRef.current) return;
@@ -173,6 +174,8 @@ export default function Home() {
           setOverlayActive(false);
           // 🔔 Beri sinyal ke Navbar agar reveal from bottom
           window.dispatchEvent(new Event("mm:reveal:nav"));
+          // 🔔 Beri sinyal ke AudioProvider → coba autoplay BGM
+          window.dispatchEvent(new Event("mm:overlay:done"));
         },
       },
       "-=0.2"
@@ -188,7 +191,10 @@ export default function Home() {
         <RouteReadyPing />
 
         {/* OVERLAY BG ONLY (non-blocking pointer) */}
-        <div ref={overlayRef} className="fixed inset-0 z-[9998] bg-[#f8f8f8] pointer-events-none" />
+        <div
+          ref={overlayRef}
+          className="fixed inset-0 z-[9998] bg-[#f8f8f8] pointer-events-none"
+        />
 
         {/* Small text — dipakai untuk overlay & posisi final (single DOM) */}
         <div

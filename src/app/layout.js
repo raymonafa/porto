@@ -3,6 +3,7 @@ import "./globals.css";
 import { JetBrains_Mono } from "next/font/google";
 import TransitionShell from "@/components/TransitionShell";
 import Navbar from "@/components/Navbar";
+import AudioProvider from "@/components/AudioProvider";
 
 const jetbrains = JetBrains_Mono({ subsets: ["latin"] });
 
@@ -16,17 +17,14 @@ export default function RootLayout({ children }) {
     <html lang="en">
       <body
         className={jetbrains.className}
-        style={{
-          overscrollBehavior: "none",
-          WebkitTapHighlightColor: "transparent",
-        }}
+        style={{ overscrollBehavior: "none", WebkitTapHighlightColor: "transparent" }}
       >
-        {/* TransitionShell membungkus app + navbar, jadi event & overlay sinkron */}
-        <TransitionShell>
-          {children}
-          {/* Navbar global (klik aktif, z-index di komponen Navbar) */}
-          <Navbar />
-        </TransitionShell>
+        <AudioProvider src="/audio/bg.mp3" initialVolume={0.5}>
+          <TransitionShell>
+            {children}
+            <Navbar />
+          </TransitionShell>
+        </AudioProvider>
       </body>
     </html>
   );

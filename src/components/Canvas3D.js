@@ -1,4 +1,3 @@
-// components/Canvas3D.js
 "use client";
 
 import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -7,6 +6,7 @@ import { useGLTF, useAnimations } from "@react-three/drei";
 import { EffectComposer, Pixelation, ChromaticAberration, Noise } from "@react-three/postprocessing";
 import * as THREE from "three";
 import { SkeletonUtils } from "three-stdlib";
+import { useAudio } from "@/components/AudioProvider";
 
 /* ================== KNOBS ================== */
 // Kamera
@@ -69,51 +69,61 @@ function deg([x, y, z]) {
   return [x, y, z].map((v) => THREE.MathUtils.degToRad(v));
 }
 
-/* ====== SFX HOOK (Web Audio) ====== */
-function useSwitchSfx(url = SFX_URL, volume = SFX_VOLUME, rate = SFX_RATE) {
+/* ====== SFX HOOK (Web Audio) — now obeys global mute/volume ====== */
+function useSwitchSfx(url = SFX_URL, baseVolume = SFX_VOLUME, rate = SFX_RATE) {
+  const audio = useAudio(); // read global { muted, volume }
   const ctxRef = useRef(null);
   const gainRef = useRef(null);
   const bufferRef = useRef(null);
   const lastPlayRef = useRef(0);
 
+  // Create audio graph once
   useEffect(() => {
-    let mounted = true;
     const Ctx = window.AudioContext || window.webkitAudioContext;
     const ctx = new Ctx();
-    ctxRef.current = ctx;
-
     const gain = ctx.createGain();
-    gain.gain.value = volume;
     gain.connect(ctx.destination);
+    ctxRef.current = ctx;
     gainRef.current = gain;
 
+    // fetch buffer
+    let cancelled = false;
     fetch(url)
-      .then((r) => r.arrayBuffer())
-      .then((ab) => ctx.decodeAudioData(ab))
-      .then((buf) => { if (mounted) bufferRef.current = buf; })
-      .catch(() => { /* ignore */ });
+      .then(r => r.arrayBuffer())
+      .then(ab => ctx.decodeAudioData(ab))
+      .then(buf => { if (!cancelled) bufferRef.current = buf; })
+      .catch(() => {});
 
-    return () => { mounted = false; /* biarkan ctx hidup */ };
-  }, [url, volume]);
+    return () => { cancelled = true; /* keep context alive; browser will clean up */ };
+  }, [url]);
 
-  const play = () => {
+  // React to global volume changes (master)
+  useEffect(() => {
+    if (!gainRef.current) return;
+    const master = Math.max(0, Math.min(1, audio?.volume ?? 1));
+    const v = master * baseVolume;
+    gainRef.current.gain.value = v;
+  }, [audio?.volume, baseVolume]);
+
+  // If globally muted, we simply don't play.
+  return () => {
+    if (audio?.muted) return;
+
+    const now = performance.now();
+    if (now - lastPlayRef.current < 120) return; // throttle
+    lastPlayRef.current = now;
+
     const ctx = ctxRef.current, buf = bufferRef.current, gain = gainRef.current;
     if (!ctx || !buf || !gain) return;
-
     if (ctx.state === "suspended") ctx.resume();
-    const now = performance.now();
-    if (now - lastPlayRef.current < 120) return;   // throttle
-    lastPlayRef.current = now;
 
     const src = ctx.createBufferSource();
     src.buffer = buf;
-    const [minR, maxR] = rate;
+    const [minR, maxR] = Array.isArray(rate) ? rate : [rate, rate];
     src.playbackRate.value = minR + Math.random() * (maxR - minR);
     src.connect(gain);
-    src.start(0);
+    try { src.start(0); } catch {}
   };
-
-  return play;
 }
 
 /* ====== PIXEL-GLITCH REVEAL ====== */
@@ -187,7 +197,7 @@ function CenteredAnimatedModel({
   baseOffset = BASE_OFFSET,
   onSwitchedClip,
   onGroundY,
-  onHoverSfx,               // ⬅️ NEW: callback play hover sfx
+  onHoverSfx,
 }) {
   const root = useRef();
   const modelRef = useRef();
@@ -203,7 +213,6 @@ function CenteredAnimatedModel({
     return m;
   }, [names]);
 
-  // pose reset + center + shadow + matte override
   useEffect(() => {
     const target = modelRef.current || cloned;
     if (!target || !root.current) return;
@@ -212,7 +221,7 @@ function CenteredAnimatedModel({
       if (o.isSkinnedMesh && o.skeleton) o.skeleton.pose();
       if (o.isMesh) {
         o.castShadow = true;
-        o.receiveShadow = false;    // hindari self-shadow acne
+        o.receiveShadow = false;
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         mats.forEach((m) => {
           if (!m) return;
@@ -225,7 +234,7 @@ function CenteredAnimatedModel({
             if ("roughnessMap" in m) m.roughnessMap = null;
             if ("metalnessMap" in m) m.metalnessMap = null;
           }
-          m.shadowSide = THREE.BackSide; // stabil cast shadow
+          m.shadowSide = THREE.BackSide;
           m.needsUpdate = true;
         });
       }
@@ -243,7 +252,6 @@ function CenteredAnimatedModel({
     );
   }, [cloned, baseOffset]);
 
-  // auto-fit + groundY
   useEffect(() => {
     const target = modelRef.current || cloned;
     if (!target) return;
@@ -265,7 +273,6 @@ function CenteredAnimatedModel({
 
   const currentNameRef = useRef(null);
 
-  // play awal
   useEffect(() => {
     if (!animations?.length) return;
     const startName = nameMap.get(initialClip.toLowerCase()) ?? names[0];
@@ -277,7 +284,6 @@ function CenteredAnimatedModel({
     return () => action.fadeOut(0.1);
   }, [animations, actions, names, mixer, initialClip, nameMap]);
 
-  // click → random clip + crossfade + callback (FX + SFX)
   const handlePointerDown = () => {
     window.dispatchEvent(new Event("trail:suppress:on"));
     setTimeout(() => window.dispatchEvent(new Event("trail:suppress:off")), 220);
@@ -302,10 +308,9 @@ function CenteredAnimatedModel({
     if (currAction) currAction.fadeOut(0.25);
 
     currentNameRef.current = next;
-    onSwitchedClip?.(next);        // retrigger FX + play switch SFX
+    onSwitchedClip?.(next);        // retrigger FX + play switch SFX (muted-aware)
   };
 
-  // ⬅️ NEW: play hover sfx sekali saat pointer masuk
   const playedHoverRef = useRef(false);
   const handlePointerOver = () => {
     window.dispatchEvent(new Event("trail:suppress:on"));
@@ -313,7 +318,7 @@ function CenteredAnimatedModel({
   };
   const handlePointerOut = () => {
     window.dispatchEvent(new Event("trail:suppress:off"));
-    playedHoverRef.current = false; // reset biar next masuk bisa bunyi lagi
+    playedHoverRef.current = false;
   };
 
   return (
@@ -333,7 +338,6 @@ useGLTF.preload("/models/model.glb");
 
 /* ====== MAIN CANVAS ====== */
 export default function Canvas3D() {
-  // mouse -1..1 (X), +1..-1 (Y)
   const mouse = useRef({ x: 0, y: 0 });
   useEffect(() => {
     const onMove = (e) => {
@@ -347,7 +351,7 @@ export default function Canvas3D() {
   const [fxTrigger, setFxTrigger] = useState(0);
   const [groundY, setGroundY] = useState(-0.5);
 
-  // SFX (klik & hover)
+  // SFX (klik & hover) — patuh ke AudioProvider (muted & volume)
   const playSwitchSfx = useSwitchSfx(SFX_URL, SFX_VOLUME, SFX_RATE);
   const playHoverSfx  = useSwitchSfx(HOVER_SFX_URL, HOVER_SFX_VOL, HOVER_SFX_RATE);
 
@@ -368,7 +372,6 @@ export default function Canvas3D() {
         gl.outputColorSpace = THREE.SRGBColorSpace;
       }}
     >
-      {/* lighting untuk shadow tegas */}
       <ambientLight intensity={1} />
       <directionalLight
         position={[2, 10, 6]}
@@ -389,24 +392,20 @@ export default function Canvas3D() {
       </directionalLight>
 
       <Suspense fallback={null}>
-        {/* Pixelation + CA/Noise aman */}
         <RevealFX trigger={fxTrigger} />
-
-        {/* Model + follow mouse; saat clip switch → FX + SFX */}
         <FollowRig mouse={mouse.current}>
           <CenteredAnimatedModel
             url="/models/model.glb"
             initialClip="Walk"
             onSwitchedClip={() => {
               setFxTrigger((t) => t + 1);
-              playSwitchSfx();
+              playSwitchSfx();     // 🔊 now respects global mute
             }}
-            onHoverSfx={playHoverSfx}   // ⬅️ NEW
+            onHoverSfx={playHoverSfx} // 🔊 now respects global mute
             onGroundY={setGroundY}
           />
         </FollowRig>
 
-        {/* Plane penerima bayangan */}
         <mesh receiveShadow rotation-x={-Math.PI / 2} position={[0, groundY + 0.001, 0]}>
           <planeGeometry args={[FLOOR_SIZE, FLOOR_SIZE]} />
           <shadowMaterial transparent opacity={SHADOW_OPACITY} color="#000" />

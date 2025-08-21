@@ -1,86 +1,61 @@
-// src/lib/sfx.js
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
-
-// Single AudioContext + decode buffer cache (hemat performa)
-const ctxBox = { ctx: null };
-const bufferCache = new Map();
-
-function getCtx() {
-  if (typeof window === "undefined") return null;
-  if (!ctxBox.ctx) {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    ctxBox.ctx = new Ctx();
-  }
-  return ctxBox.ctx;
-}
+import { useRef, useCallback } from "react";
+import { useAudio } from "@/components/AudioProvider";
 
 /**
- * Reusable SFX hook.
- * @param {string} url - path audio (contoh: "/sfx/hover.mp3")
- * @param {object} opts - { volume, rate:[min,max], throttleMs }
+ * Pakai:
+ *   const playHover = useSfx("/sfx/hover.mp3", { volume: 0.45, rate: [0.98, 1.05], throttleMs: 120 });
+ *   const playClick = useSfx("/sfx/click.mp3", { volume: 0.6 });
+ *
+ * Behavior:
+ * - Kalau AudioProvider.muted === true → SFX tidak dimainkan.
+ * - Volume SFX dikalikan master volume dari AudioProvider (audio.volume).
+ * - throttleMs mencegah spam SFX.
  */
-export function useSfx(
-  url,
-  { volume = 0.5, rate = [1, 1], throttleMs = 100 } = {}
-) {
-  const gainRef = useRef(null);
-  const bufRef = useRef(null);
+export function useSfx(src, opts = {}) {
+  const audio = useAudio();
   const lastRef = useRef(0);
 
-  useEffect(() => {
-    const ctx = getCtx();
-    if (!ctx) return;
+  const {
+    volume = 1,
+    rate = 1,            // number atau [min, max]
+    throttleMs = 0,
+  } = opts;
 
-    // gain node sekali saja per instansi hook
-    const gain = ctx.createGain();
-    gain.gain.value = volume;
-    gain.connect(ctx.destination);
-    gainRef.current = gain;
+  const pickRate = () => {
+    if (Array.isArray(rate)) {
+      const [min, max] = rate;
+      return min + Math.random() * (max - min);
+    }
+    return rate;
+  };
 
-    let cancelled = false;
-    (async () => {
-      if (bufferCache.has(url)) {
-        bufRef.current = bufferCache.get(url);
-        return;
-      }
-      const res = await fetch(url);
-      const ab = await res.arrayBuffer();
-      const buf = await ctx.decodeAudioData(ab);
-      if (!cancelled) {
-        bufferCache.set(url, buf);
-        bufRef.current = buf;
-      }
-    })();
+  return useCallback(() => {
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    if (throttleMs && now - lastRef.current < throttleMs) return;
+    lastRef.current = now;
 
-    return () => {
-      cancelled = true;
-      // biarkan ctx & buffer di-cache (jangan di-dispose)
+    if (typeof window === "undefined") return;
+
+    // Hormati toggle global: jika muted → jangan mainkan SFX
+    if (audio?.muted) return;
+
+    const el = new Audio();
+    el.src = src;
+    el.preload = "auto";
+    el.crossOrigin = "anonymous";
+    // master volume dari provider (audio.volume) * volume per-SFX
+    el.volume = Math.max(0, Math.min(1, (audio?.volume ?? 1) * volume));
+    el.playbackRate = pickRate();
+
+    const cleanup = () => {
+      try { el.pause(); } catch {}
+      el.src = ""; // release resource
     };
-  }, [url, volume]);
+    el.addEventListener("ended", cleanup, { once: true });
+    el.addEventListener("error", cleanup, { once: true });
 
-  // stable play()
-  return useMemo(() => {
-    return () => {
-      const ctx = getCtx();
-      if (!ctx) return;
-      if (ctx.state === "suspended") ctx.resume();
-
-      const buf = bufRef.current;
-      const gain = gainRef.current;
-      if (!buf || !gain) return;
-
-      const now = performance.now();
-      if (now - lastRef.current < throttleMs) return; // anti spam
-      lastRef.current = now;
-
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      const [minR, maxR] = rate;
-      src.playbackRate.value = minR + Math.random() * (maxR - minR);
-      src.connect(gain);
-      src.start();
-    };
-  }, [rate, throttleMs]);
+    el.play().catch(() => cleanup());
+  }, [src, volume, rate, throttleMs, audio?.muted, audio?.volume]);
 }

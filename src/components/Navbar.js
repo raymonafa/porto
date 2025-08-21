@@ -1,11 +1,15 @@
+// src/components/Navbar.jsx
 "use client";
-
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import gsap from "gsap";
 import ShapeButton from "@/components/ShapeButton";
+import { useAudio } from "@/components/AudioProvider";
 
 const ASCII = ["⁕","※","⊙","∘","∀","9","1",">","-","6"];
+
+// Tambah jeda setelah overlay done, supaya nav tidak “nyelonong”
+const NAV_REVEAL_HOLD_MS = 600;
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -13,7 +17,7 @@ export default function Navbar() {
   const isWork  = pathname.startsWith("/work");
   const isAbout = pathname.startsWith("/about");
 
-  // ====== labels + ASCII burst on hover ======
+  // ===== labels & ascii hover =====
   const originals = { manamona: "[MANAMONA]", works: "[WORKS]", who: "[WHO]" };
   const [labels, setLabels] = useState(originals);
   const iv = useRef({}), to = useRef({});
@@ -43,24 +47,25 @@ export default function Navbar() {
     };
   }, []);
 
-  // ====== bottom-reveal (Home only) ======
+  // ===== reveal from bottom =====
   const btn1 = useRef(null);
   const btn2 = useRef(null);
   const btn3 = useRef(null);
+  const audioBtnRef = useRef(null);
   const tlRef = useRef(null);
   const playedRef = useRef(false);
 
-  // SSR-safe initial state -> mencegah “muncul dulu”
-  const initStyleHome = isHome ? { transform: "translateY(28px)", opacity: 0 } : undefined;
+  // initial hidden only on Home
+  const initHome = isHome ? { transform: "translateY(28px)", opacity: 0 } : undefined;
 
-  // Sync & will-change
   useLayoutEffect(() => {
+    const els = [btn1.current, btn2.current, btn3.current, audioBtnRef.current];
     if (!isHome) {
-      gsap.set([btn1.current, btn2.current, btn3.current], { y: 0, opacity: 1, clearProps: "willChange" });
+      gsap.set(els, { y: 0, opacity: 1, clearProps: "willChange" });
       playedRef.current = false;
       return;
     }
-    gsap.set([btn1.current, btn2.current, btn3.current], { y: 28, opacity: 0, willChange: "transform,opacity" });
+    gsap.set(els, { y: 28, opacity: 0, willChange: "transform,opacity" });
   }, [isHome]);
 
   useEffect(() => {
@@ -68,72 +73,111 @@ export default function Navbar() {
 
     const play = () => {
       if (playedRef.current) return;
-      const els = [btn1.current, btn2.current, btn3.current];
+      const els = [btn1.current, btn2.current, btn3.current, audioBtnRef.current];
       if (els.some(e => !e)) return;
 
       if (tlRef.current) tlRef.current.kill();
       tlRef.current = gsap.timeline({ defaults: { ease: "power4.inOut" } })
-        .to(btn1.current, { y: 0, opacity: 1, duration: 0.8 }, 0.00)
-        .to(btn2.current, { y: 0, opacity: 1, duration: 0.8 }, 0.12)
-        .to(btn3.current, { y: 0, opacity: 1, duration: 0.8 }, 0.24)
+        .set(els, { pointerEvents: "none" })
+        .to({}, { duration: NAV_REVEAL_HOLD_MS / 1000 })
+        .to(btn1.current, { y: 0, opacity: 1, duration: 0.8 }, 0.12)
+        .to(btn2.current, { y: 0, opacity: 1, duration: 0.8 }, 0.24)
+        .to(btn3.current, { y: 0, opacity: 1, duration: 0.8 }, 0.36)
+        .to(audioBtnRef.current, { y: 0, opacity: 1, duration: 0.8 }, 0.48)
         .add(() => {
           gsap.set(els, { clearProps: "willChange" });
+          gsap.set(els, { pointerEvents: "auto" });
           playedRef.current = true;
         });
     };
 
-    // 👉 animasi jalan setelah overlay home selesai (page.js dispatch "mm:reveal:nav")
-    const onReveal = () => play();
-    window.addEventListener("mm:reveal:nav", onReveal);
-
-    // fallback (tetap usable bila event gagal terkirim)
-    const fallback = setTimeout(play, 2000);
+    const onOverlay = () => play();              // dari Home (overlay selesai)
+    window.addEventListener("mm:overlay:done", onOverlay);
+    const fallback = setTimeout(play, 3000);     // jaga-jaga
 
     return () => {
-      window.removeEventListener("mm:reveal:nav", onReveal);
+      window.removeEventListener("mm:overlay:done", onOverlay);
       clearTimeout(fallback);
       if (tlRef.current) tlRef.current.kill();
     };
   }, [isHome]);
 
   return (
-    <nav
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-px pointer-events-auto"
-      style={{ isolation: "isolate" }} // cegah ketiban stacking-context lain
+    <>
+      {/* NAV utama — sejajar padding overlay (px-10), full width */}
+      <nav
+        className="fixed bottom-6 inset-x-0 z-[12000] px-10 flex justify-center gap-px pointer-events-auto"
+        data-suppress-trail
+      >
+        <div ref={btn1} className="inline-block" style={initHome}>
+          <ShapeButton
+            href="/"
+            label={labels.manamona}
+            shapeSrc="/buttons/button1.svg"
+            active={isHome}
+            onMouseEnter={() => start("manamona")}
+            onMouseLeave={() => stop("manamona")}
+          />
+        </div>
+
+        <div ref={btn2} className="inline-block" style={initHome}>
+          <ShapeButton
+            href="/work"
+            label={labels.works}
+            shapeSrc="/buttons/button2.svg"
+            active={isWork}
+            onMouseEnter={() => start("works")}
+            onMouseLeave={() => stop("works")}
+          />
+        </div>
+
+        <div ref={btn3} className="inline-block" style={initHome}>
+          <ShapeButton
+            href="/about"
+            label={labels.who}
+            shapeSrc="/buttons/button3.svg"
+            active={isAbout}
+            onMouseEnter={() => start("who")}
+            onMouseLeave={() => stop("who")}
+          />
+        </div>
+      </nav>
+
+      {/* Tombol AUDIO — ikut hidden+reveal seperti nav */}
+      <AudioBubble refEl={audioBtnRef} isHome={isHome} />
+    </>
+  );
+}
+
+/* ====== Audio bubble (mute/unmute) ====== */
+function AudioBubble({ refEl, isHome }) {
+  const audio = useAudio();
+  if (!audio) return null;
+
+  const { playing, muted } = audio;
+  const isOn = playing && !muted;
+
+  return (
+    <div
+      ref={refEl}
+      className="fixed left-10 bottom-6 z-[12000] pointer-events-auto select-none"
+      style={isHome ? { transform: "translateY(28px)", opacity: 0 } : undefined}
       data-suppress-trail
     >
-      <div ref={btn1} className="inline-block" style={initStyleHome}>
-        <ShapeButton
-          href="/"
-          label={labels.manamona}
-          shapeSrc="/buttons/button1.svg"
-          active={isHome}
-          onMouseEnter={() => start("manamona")}
-          onMouseLeave={() => stop("manamona")}
-        />
-      </div>
-
-      <div ref={btn2} className="inline-block" style={initStyleHome}>
-        <ShapeButton
-          href="/work"
-          label={labels.works}
-          shapeSrc="/buttons/button2.svg"
-          active={isWork}
-          onMouseEnter={() => start("works")}
-          onMouseLeave={() => stop("works")}
-        />
-      </div>
-
-      <div ref={btn3} className="inline-block" style={initStyleHome}>
-        <ShapeButton
-          href="/about"
-          label={labels.who}
-          shapeSrc="/buttons/button3.svg"
-          active={isAbout}
-          onMouseEnter={() => start("who")}
-          onMouseLeave={() => stop("who")}
-        />
-      </div>
-    </nav>
+      <button
+        onClick={async () => {
+          if (!playing) await audio.play(); else audio.toggleMuted();
+        }}
+        className="group flex items-center gap-2 rounded-full bg-white/85 backdrop-blur px-3 py-2 shadow hover:bg-white transition"
+        title={isOn ? "Sound on — click to mute" : "Muted — click to play/unmute"}
+      >
+        <span className="inline-grid place-items-center w-8 h-8 rounded-full border border-black/10 bg-white" aria-hidden>
+          <span className={`block w-3 h-3 rounded-full ${isOn ? "bg-[#2ecc71]" : "bg-[#e74c3c]"}`} />
+        </span>
+        <span className="font-mono text-xs text-black/80 pr-1">
+          {isOn ? "Sound on" : "Muted"}
+        </span>
+      </button>
+    </div>
   );
 }
