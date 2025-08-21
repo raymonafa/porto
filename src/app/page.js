@@ -6,6 +6,7 @@ import MouseTrail from "@/components/MouseTrail";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
 import RevealGate from "@/components/RevealGate";
+import RouteReadyPing from "@/components/RouteReadyPing";
 
 const asciiCharacters = ["⁕", "※", "⊙", "∘", "∀", "9", "1", ">", "-", "6"];
 
@@ -183,8 +184,11 @@ export default function Home() {
   return (
     <RevealGate enabled timeout={1500}>
       <main className="relative h-screen w-screen overflow-hidden bg-[#f8f8f8] font-mono text-black">
-        {/* OVERLAY BG ONLY */}
-        <div ref={overlayRef} className="fixed inset-0 z-[9998] bg-[#f8f8f8]" />
+        {/* Route ready ping (sinkron dengan PixelTransition) */}
+        <RouteReadyPing />
+
+        {/* OVERLAY BG ONLY (non-blocking pointer) */}
+        <div ref={overlayRef} className="fixed inset-0 z-[9998] bg-[#f8f8f8] pointer-events-none" />
 
         {/* Small text — dipakai untuk overlay & posisi final (single DOM) */}
         <div

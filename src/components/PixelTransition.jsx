@@ -1,3 +1,4 @@
+// src/components/PixelTransition.jsx
 "use client";
 
 import React, {
@@ -43,8 +44,8 @@ const PixelTransition = forwardRef(
     {
       pixelSize = 80,     // ukuran tile
       color = "#D3FB43",  // warna cover
-      coverDuration = 1,  // total waktu proses cover (dipakai untuk jarak stagger, per-tile tetap snap)
-      revealDuration = 1, // total waktu proses reveal (dipakai untuk jarak stagger, per-tile tetap snap)
+      coverDuration = 0.8,  // total waktu proses cover (dipakai untuk jarak stagger, per-tile tetap snap)
+      revealDuration = 0.8, // total waktu proses reveal (dipakai untuk jarak stagger, per-tile tetap snap)
     },
     ref
   ) => {
@@ -62,8 +63,7 @@ const PixelTransition = forwardRef(
         zIndex: "999999",
         pointerEvents: "none",
         display: "none", // idle = tidak terlihat
-        // untuk menghindari scroll-jump saat animasi
-        contain: "strict",
+        contain: "strict", // hindari scroll-jump saat animasi
       });
       const grid = gridRef.current;
       Object.assign(grid.style, {
@@ -75,10 +75,10 @@ const PixelTransition = forwardRef(
 
     useImperativeHandle(ref, () => ({
       /**
-       * Mulai transisi tanpa scale/opacity:
-       * 1) COVER: tiap tile "menyala" (backgroundColor -> color) secara instan, urutan acak (stagger random).
-       * 2) onCovered(): panggil router.push di TransitionShell
-       * 3) REVEAL: tiap tile "mati" (backgroundColor -> transparent) secara instan, urutan acak.
+       * Transisi tanpa scale/opacity:
+       * 1) COVER: tiap tile "menyala" (bg -> color) instan, urutan acak (stagger).
+       * 2) onCovered(): router.push + tunggu app:route:ready
+       * 3) REVEAL: tiap tile "mati" (bg -> transparent) instan, urutan acak.
        * 4) dispatch "app:transition:reveal:done"
        */
       play(onCovered) {
@@ -101,49 +101,46 @@ const PixelTransition = forwardRef(
         // Pastikan initial state transparan
         gsap.set(cells, { backgroundColor: "transparent" });
 
-        // COVER: gunakan durasi 0 per tile (snap), tapi dengan stagger acak sepanjang coverDuration
+        // COVER: durasi 0 per tile (snap), tapi dengan stagger acak sepanjang coverDuration
         const tl = gsap.timeline({ defaults: { ease: "none" } });
 
         tl.to(cells, {
           duration: 0, // instant per tile
           backgroundColor: color,
           stagger: {
+            // pakai skema "each ~ amount/32" seperti versi kamu
             each: (coverDuration / Math.max(1, cells.length)) * 32,
             grid: dims, // [rows, cols]
             from: "random",
           },
-          onComplete: () => {
-            // panggil callback untuk navigate
+          onComplete: async () => {
+            // ⬇️ PATCH PENTING: benar-benar tunggu onCovered selesai
             try {
-              onCovered?.();
-            } catch {}
+              await Promise.resolve(onCovered?.());
+            } catch (e) {
+              // jangan blokir bila error
+              // console.error(e);
+            }
 
-            // REVEAL setelah konten baru mount (tunggu 2 raf)
-            requestAnimationFrame(() => {
-              requestAnimationFrame(() => {
-                // tetap visible selama reveal
-                wrap.style.display = "block";
+            // jika selama nunggu ada transisi baru, hentikan
+            if (tlRef.current !== tl) return;
 
-                // REVEAL: matikan pixel secara instan per tile, urutan acak
-                gsap.to(cells, {
-                  duration: 0, // instant per tile
-                  backgroundColor: "transparent",
-                  stagger: {
-                    each: (revealDuration / Math.max(1, cells.length)) * 32,
-                    grid: dims,
-                    from: "random",
-                  },
-                  ease: "none",
-                  onComplete: () => {
-                    // bersih-bersih & beritahu selesai
-                    wrap.style.display = "none";
-                    while (grid.firstChild) grid.removeChild(grid.firstChild);
-                    window.dispatchEvent(
-                      new Event("app:transition:reveal:done")
-                    );
-                  },
-                });
-              });
+            // REVEAL: matikan pixel secara instan per tile, urutan acak
+            gsap.to(cells, {
+              duration: 0, // instant per tile
+              backgroundColor: "transparent",
+              stagger: {
+                each: (revealDuration / Math.max(1, cells.length)) * 32,
+                grid: dims,
+                from: "random",
+              },
+              ease: "none",
+              onComplete: () => {
+                // bersih-bersih & beritahu selesai
+                wrap.style.display = "none";
+                while (grid.firstChild) grid.removeChild(grid.firstChild);
+                window.dispatchEvent(new Event("app:transition:reveal:done"));
+              },
             });
           },
         });

@@ -11,47 +11,58 @@ const ROWS = 3;
 
 const CELL_W = 320;
 const CELL_H = 320;
-const GAP    = 0; // tidak ada jarak antar-cell
+const GAP    = 0;
 
 // Drag & inertia (arah natural)
-const DRAG_GAIN  = 1.6;
-const WHEEL_GAIN = 0.5;
-const MAX_V      = 14;
-const DAMPING    = 0.93;
-const FOLLOW     = 0.18;
+const DRAG_GAIN  = 1.2;
+const WHEEL_GAIN = 0.35;
+const MAX_V      = 12;
+const DAMPING    = 0.95;
+const FOLLOW     = 0.16;
 
 // Parallax mouse
-const MOUSE_GAIN   = 22;
+const MOUSE_GAIN   = 18;
 const MOUSE_SMOOTH = 0.08;
+
+// Bedakan klik vs drag (px)
+const CLICK_DRAG_EPS = 7;
 
 /* ====== SIMPLE REVEAL (scale+opacity) ====== */
 const REVEAL_MIN_DELAY = 0.0;
 const REVEAL_MAX_DELAY = 0.35;
 const REVEAL_DUR       = 0.6;
-/* =========================================== */
 
 /* ==== THEME ==== */
 const TILE_BG   = "#E7E7E7";
 const GRID_LINE = "#B3B3B3";
+const HOVER_TINT = "rgba(0,0,0,0.06)";
 
-/* ==== CAMERA FX (zoom & tilt saat drag/scroll) ==== */
-const CAM_PERSPECTIVE = 1200;     // px
-const CAM_SMOOTH      = 0.08;     // smoothing faktor 0..1
-const CAM_ZOOM_MAX    = 0.1;     // 0.08 ≈ zoom-out max ~8% saat speed = MAX_V
-const CAM_TILT_MAX    = 4.0;      // derajat maksimum tilt
-// catatan: zoom diarahkan “pull back” (scale < 1) ketika bergerak cepat
+/* ==== CAMERA FX ==== */
+const CAM_PERSPECTIVE = 1200;
+const CAM_SMOOTH      = 0.08;
+const CAM_ZOOM_MAX    = 0.08;
+const CAM_TILT_MAX    = 3.2;
 
 const wrapMod = (n, m) => ((n % m) + m) % m;
 
 export default function InfiniteWorksGrid({ items = [] }) {
   const hostRef   = useRef(null);
-  const camRef    = useRef(null);     // ← wrapper “kamera”
+  const camRef    = useRef(null);
   const tilesRef  = useRef(null);
   const revealedOnce = useRef(false);
 
   const tileW = COLS * (CELL_W + GAP);
   const tileH = ROWS * (CELL_H + GAP);
 
+  /* === Gate: tunggu PixelTransition selesai === */
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    const onRevealDone = () => setArmed(true);
+    window.addEventListener("app:transition:reveal:done", onRevealDone, { once: true });
+    return () => window.removeEventListener("app:transition:reveal:done", onRevealDone);
+  }, []);
+
+  // viewport
   const [vp, setVp] = useState({ w: 0, h: 0 });
   useEffect(() => {
     const read = () => {
@@ -65,14 +76,14 @@ export default function InfiniteWorksGrid({ items = [] }) {
     return () => window.removeEventListener("resize", read);
   }, []);
 
-  // isi grid (berurutan)
+  // isi grid
   const baseCells = useMemo(() => {
     const total = COLS * ROWS;
     const n = Math.max(items.length, 1);
     return new Array(total).fill(0).map((_, i) => items[i % n]);
   }, [items]);
 
-  // jumlah clone tile agar menutup viewport + margin
+  // jumlah clone tile
   const tilesX = Math.max(1, Math.ceil(vp.w / tileW) + 3);
   const tilesY = Math.max(1, Math.ceil(vp.h / tileH) + 3);
 
@@ -80,16 +91,16 @@ export default function InfiniteWorksGrid({ items = [] }) {
   const off    = useRef({ x: 0, y: 0 });
   const target = useRef({ x: 0, y: 0 });
   const vel    = useRef({ x: 0, y: 0 });
-  const drag   = useRef({ down: false, lx: 0, ly: 0, lastT: 0 });
+  const drag   = useRef({ down: false, lx: 0, ly: 0, lastT: 0, dist: 0 });
 
   // Parallax mouse
-  const cursor = useRef({ x: 0, y: 0 }); // -1..1
-  const mshift = useRef({ x: 0, y: 0 }); // px
+  const cursor = useRef({ x: 0, y: 0 });
+  const mshift = useRef({ x: 0, y: 0 });
 
   // Kamera semu
-  const cam    = useRef({ scale: 1, rx: 0, ry: 0 }); // rx=rotateX, ry=rotateY
+  const cam    = useRef({ scale: 1, rx: 0, ry: 0 });
 
-  // RAF loop — follow + inertia + parallax + camera FX
+  // RAF loop
   useEffect(() => {
     let raf = 0;
     const tick = () => {
@@ -107,7 +118,7 @@ export default function InfiniteWorksGrid({ items = [] }) {
         off.current.y += (target.current.y - off.current.y) * FOLLOW;
       }
 
-      // parallax halus
+      // parallax
       const px = cursor.current.x * MOUSE_GAIN;
       const py = cursor.current.y * MOUSE_GAIN;
       mshift.current.x += (px - mshift.current.x) * MOUSE_SMOOTH;
@@ -116,7 +127,6 @@ export default function InfiniteWorksGrid({ items = [] }) {
       const baseX = wrapMod(off.current.x, tileW);
       const baseY = wrapMod(off.current.y, tileH);
 
-      // apply ke CSS variables (translasi tile)
       if (tilesRef.current) {
         tilesRef.current.style.setProperty("--bx", `${baseX}px`);
         tilesRef.current.style.setProperty("--by", `${baseY}px`);
@@ -124,15 +134,12 @@ export default function InfiniteWorksGrid({ items = [] }) {
         tilesRef.current.style.setProperty("--my", `${mshift.current.y}px`);
       }
 
-      // === Camera FX (zoom & tilt) ===
-      // speed normalisasi 0..1 terhadap MAX_V
+      // camera fx
       const speed = Math.min(1, Math.hypot(vel.current.x, vel.current.y) / MAX_V);
-      // zoom-out proporsional speed (scale turun hingga 1 - CAM_ZOOM_MAX)
       const targetScale = 1 - speed * CAM_ZOOM_MAX;
       cam.current.scale += (targetScale - cam.current.scale) * CAM_SMOOTH;
 
-      // tilt berdasarkan arah gerak (vel): gerak horizontal → rotateY, vertikal → rotateX
-      const tRy = (-vel.current.x / MAX_V) * CAM_TILT_MAX; // derajat
+      const tRy = (-vel.current.x / MAX_V) * CAM_TILT_MAX;
       const tRx = ( vel.current.y / MAX_V) * CAM_TILT_MAX;
       cam.current.ry += (tRy - cam.current.ry) * CAM_SMOOTH;
       cam.current.rx += (tRx - cam.current.rx) * CAM_SMOOTH;
@@ -147,7 +154,7 @@ export default function InfiniteWorksGrid({ items = [] }) {
     return () => cancelAnimationFrame(raf);
   }, [tileW, tileH]);
 
-  // Pointer drag — arah NATURAL + tracking cursor untuk parallax
+  // Pointer drag + parallax
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
@@ -158,6 +165,7 @@ export default function InfiniteWorksGrid({ items = [] }) {
       drag.current.lx = p.clientX;
       drag.current.ly = p.clientY;
       drag.current.lastT = performance.now();
+      drag.current.dist = 0; // reset threshold
       vel.current.x = 0;
       vel.current.y = 0;
     };
@@ -176,6 +184,8 @@ export default function InfiniteWorksGrid({ items = [] }) {
       drag.current.lx = nx;
       drag.current.ly = ny;
 
+      drag.current.dist += Math.hypot(dx, dy);
+
       target.current.x += dx;
       target.current.y += dy;
 
@@ -187,7 +197,10 @@ export default function InfiniteWorksGrid({ items = [] }) {
       vel.current.y = Math.max(-MAX_V, Math.min(MAX_V, dy * k));
     };
 
-    const onUp = () => { drag.current.down = false; };
+    const onUp = () => {
+      drag.current.down = false;
+      drag.current.dist = 0; // ⬅️ penting: bersihkan agar klik berikutnya tidak keblok
+    };
 
     host.addEventListener("pointerdown", onDown);
     host.addEventListener("pointermove", onMove);
@@ -199,6 +212,10 @@ export default function InfiniteWorksGrid({ items = [] }) {
     host.addEventListener("touchend", onUp);
     host.addEventListener("touchcancel", onUp);
 
+    // ⬇️ jaga-jaga: kalau mouse dilepas di luar window/tab pindah
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("blur", onUp);
+
     return () => {
       host.removeEventListener("pointerdown", onDown);
       host.removeEventListener("pointermove", onMove);
@@ -208,10 +225,12 @@ export default function InfiniteWorksGrid({ items = [] }) {
       host.removeEventListener("touchmove", onMove);
       host.removeEventListener("touchend", onUp);
       host.removeEventListener("touchcancel", onUp);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("blur", onUp);
     };
   }, []);
 
-  // Wheel / trackpad → ikut mempengaruhi vel (jadi zoom+tilt juga terasa saat scroll)
+  // Wheel / trackpad
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
@@ -241,15 +260,17 @@ export default function InfiniteWorksGrid({ items = [] }) {
       ref={hostRef}
       className="absolute inset-0 cursor-grab active:cursor-grabbing select-none"
       style={{
+        visibility: armed ? "visible" : "hidden",
         touchAction: "none",
         overscrollBehavior: "none",
         willChange: "transform",
+        background: "#E7E7E7",
+        zIndex: 10,
         userSelect: "none",
         WebkitUserSelect: "none",
         MozUserSelect: "none",
         msUserSelect: "none",
         WebkitTapHighlightColor: "transparent",
-        background: TILE_BG,
       }}
       onContextMenu={(e) => e.preventDefault()}
     >
@@ -277,8 +298,9 @@ export default function InfiniteWorksGrid({ items = [] }) {
               items={baseCells}
               tileW={tileW}
               tileH={tileH}
-              doReveal={!revealedOnce.current && tx === 0 && ty === 0}
+              doReveal={armed && !revealedOnce.current && tx === 0 && ty === 0}
               onRevealed={() => { revealedOnce.current = true; }}
+              dragStateRef={drag}
             />
           ))}
         </div>
@@ -288,7 +310,7 @@ export default function InfiniteWorksGrid({ items = [] }) {
 }
 
 /* ================= TILE ================= */
-function Tile({ tx, ty, items, tileW, tileH, doReveal, onRevealed }) {
+function Tile({ tx, ty, items, tileW, tileH, doReveal, onRevealed, dragStateRef }) {
   return (
     <div
       className="absolute"
@@ -311,11 +333,11 @@ function Tile({ tx, ty, items, tileW, tileH, doReveal, onRevealed }) {
           `,
           backgroundSize: `${CELL_W}px ${CELL_H}px, ${CELL_W}px ${CELL_H}px`,
           backgroundPosition: "0 0, 0 0",
-          zIndex: 1,
+          zIndex: 0,
         }}
       />
 
-      <div className="relative w-full h-full">
+      <div className="relative w-full h-full" style={{ zIndex: 2 }}>
         {items.map((it, i) => {
           const cx = i % COLS;
           const cy = (i / COLS) | 0;
@@ -330,6 +352,7 @@ function Tile({ tx, ty, items, tileW, tileH, doReveal, onRevealed }) {
               reveal={doReveal}
               delay={REVEAL_MIN_DELAY + Math.random() * (REVEAL_MAX_DELAY - REVEAL_MIN_DELAY)}
               onCellRevealed={onRevealed}
+              dragStateRef={dragStateRef}
             />
           );
         })}
@@ -338,8 +361,8 @@ function Tile({ tx, ty, items, tileW, tileH, doReveal, onRevealed }) {
   );
 }
 
-/* ============== CELL (simple scale+opacity reveal) ============== */
-function WorkCell({ left, top, item, reveal, delay = 0, onCellRevealed }) {
+/* ============== CELL (reveal + hover + click-safe) ============== */
+function WorkCell({ left, top, item, reveal, delay = 0, onCellRevealed, dragStateRef }) {
   const cellRef = useRef(null);
   const contentRef = useRef(null);
   const revealedRef = useRef(false);
@@ -351,7 +374,7 @@ function WorkCell({ left, top, item, reveal, delay = 0, onCellRevealed }) {
     const el = cellRef.current;
     if (!el) return;
 
-    // initial state
+    // state awal
     el.style.opacity = reveal ? "0" : "1";
     el.style.transform = reveal ? "scale(0.94)" : "scale(1)";
     el.style.transformOrigin = "center center";
@@ -386,9 +409,18 @@ function WorkCell({ left, top, item, reveal, delay = 0, onCellRevealed }) {
     >
       <Link
         href={item?.href ?? "#"}
-        className="group block h-full"
+        className="group block h-full cursor-pointer"  // ⬅️ paksa cursor pointer meski parent cursor-grab
         draggable={false}
+        data-interactive
+        style={{ position: "relative", zIndex: 2, pointerEvents: "auto" }}
         onDragStart={(e) => e.preventDefault()}
+        onClick={(e) => {
+          const dist = dragStateRef?.current?.dist ?? 0;
+          if (dist > CLICK_DRAG_EPS) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }}
       >
         {/* BACKGROUND IMAGE */}
         {item?.bg && (
@@ -405,11 +437,18 @@ function WorkCell({ left, top, item, reveal, delay = 0, onCellRevealed }) {
           />
         )}
 
+        {/* HOVER TINT */}
+        <div
+          className="absolute inset-0 opacity-0 transition-opacity duration-200 ease-out pointer-events-none group-hover:opacity-100"
+          aria-hidden
+          style={{ background: HOVER_TINT, zIndex: 1 }}
+        />
+
         {/* overlay UI */}
         <div
           ref={contentRef}
           className="pointer-events-none absolute inset-0 p-4 select-none"
-          style={{ opacity: 1, zIndex: 1 }}
+          style={{ opacity: 1, zIndex: 2 }}
         >
           <div className="absolute left-4 top-4 text-sm font-semibold tracking-wide text-[#222]">
             LOGO

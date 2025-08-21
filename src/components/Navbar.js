@@ -1,4 +1,5 @@
 "use client";
+
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import gsap from "gsap";
@@ -52,15 +53,13 @@ export default function Navbar() {
   // SSR-safe initial state -> mencegah “muncul dulu”
   const initStyleHome = isHome ? { transform: "translateY(28px)", opacity: 0 } : undefined;
 
-  // Sync dan siapkan will-change (tanpa mem-flash elemen)
+  // Sync & will-change
   useLayoutEffect(() => {
     if (!isHome) {
-      // halaman non-home tampil normal
       gsap.set([btn1.current, btn2.current, btn3.current], { y: 0, opacity: 1, clearProps: "willChange" });
       playedRef.current = false;
       return;
     }
-    // Home: tegaskan initial agar match dengan inline style
     gsap.set([btn1.current, btn2.current, btn3.current], { y: 28, opacity: 0, willChange: "transform,opacity" });
   }, [isHome]);
 
@@ -68,7 +67,7 @@ export default function Navbar() {
     if (!isHome) return;
 
     const play = () => {
-      if (playedRef.current) return; // hindari double-run
+      if (playedRef.current) return;
       const els = [btn1.current, btn2.current, btn3.current];
       if (els.some(e => !e)) return;
 
@@ -83,11 +82,11 @@ export default function Navbar() {
         });
     };
 
-    // 👉 animasi jalan setelah overlay home selesai (page.js harus dispatch event ini)
+    // 👉 animasi jalan setelah overlay home selesai (page.js dispatch "mm:reveal:nav")
     const onReveal = () => play();
     window.addEventListener("mm:reveal:nav", onReveal);
 
-    // fallback kalau event tidak pernah terkirim (agar tetap usable)
+    // fallback (tetap usable bila event gagal terkirim)
     const fallback = setTimeout(play, 2000);
 
     return () => {
@@ -99,7 +98,8 @@ export default function Navbar() {
 
   return (
     <nav
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-px pointer-events-auto"
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-px pointer-events-auto"
+      style={{ isolation: "isolate" }} // cegah ketiban stacking-context lain
       data-suppress-trail
     >
       <div ref={btn1} className="inline-block" style={initStyleHome}>
