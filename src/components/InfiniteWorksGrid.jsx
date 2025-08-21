@@ -33,8 +33,8 @@ const REVEAL_MAX_DELAY = 0.35;
 const REVEAL_DUR       = 0.6;
 
 /* ==== THEME ==== */
-const TILE_BG   = "#E7E7E7";
-const GRID_LINE = "#B3B3B3";
+const TILE_BG    = "#E7E7E7";
+const GRID_LINE  = "#b6b6b6ff";
 const HOVER_TINT = "rgba(0,0,0,0.06)";
 
 /* ==== CAMERA FX ==== */
@@ -43,7 +43,15 @@ const CAM_SMOOTH      = 0.08;
 const CAM_ZOOM_MAX    = 0.08;
 const CAM_TILT_MAX    = 3.2;
 
+/* ==== AUDIO EMIT ==== */
+const EMIT_INTERVAL_MS = 16; // ~60fps
+
 const wrapMod = (n, m) => ((n % m) + m) % m;
+
+const emitVelocity = (vx, vy) => {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("mm:grid:velocity", { detail: { vx, vy } }));
+};
 
 export default function InfiniteWorksGrid({ items = [] }) {
   const hostRef   = useRef(null);
@@ -54,12 +62,16 @@ export default function InfiniteWorksGrid({ items = [] }) {
   const tileW = COLS * (CELL_W + GAP);
   const tileH = ROWS * (CELL_H + GAP);
 
-  /* === Gate: tunggu PixelTransition selesai === */
+  /* === Gate: tunggu PixelTransition selesai; ada fallback utk direct-load === */
   const [armed, setArmed] = useState(false);
   useEffect(() => {
-    const onRevealDone = () => setArmed(true);
+    let to = setTimeout(() => setArmed(true), 500); // fallback kalau tidak ada event
+    const onRevealDone = () => { clearTimeout(to); setArmed(true); };
     window.addEventListener("app:transition:reveal:done", onRevealDone, { once: true });
-    return () => window.removeEventListener("app:transition:reveal:done", onRevealDone);
+    return () => {
+      clearTimeout(to);
+      window.removeEventListener("app:transition:reveal:done", onRevealDone);
+    };
   }, []);
 
   // viewport
@@ -100,9 +112,14 @@ export default function InfiniteWorksGrid({ items = [] }) {
   // Kamera semu
   const cam    = useRef({ scale: 1, rx: 0, ry: 0 });
 
+  // gesture once (wheel)
+  const gestureSentRef = useRef(false);
+
   // RAF loop
   useEffect(() => {
     let raf = 0;
+    let lastEmit = 0;
+
     const tick = () => {
       raf = requestAnimationFrame(tick);
 
@@ -149,7 +166,15 @@ export default function InfiniteWorksGrid({ items = [] }) {
         camRef.current.style.transform =
           `perspective(${CAM_PERSPECTIVE}px) translateZ(0) rotateX(${rx}deg) rotateY(${ry}deg) scale(${scale})`;
       }
+
+      // 🔊 kirim velocity (throttle ~60fps)
+      const now = performance.now();
+      if (now - lastEmit >= EMIT_INTERVAL_MS) {
+        emitVelocity(vel.current.x, vel.current.y);
+        lastEmit = now;
+      }
     };
+
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [tileW, tileH]);
@@ -165,9 +190,13 @@ export default function InfiniteWorksGrid({ items = [] }) {
       drag.current.lx = p.clientX;
       drag.current.ly = p.clientY;
       drag.current.lastT = performance.now();
-      drag.current.dist = 0; // reset threshold
+      drag.current.dist = 0;
       vel.current.x = 0;
       vel.current.y = 0;
+      // gesture: resume audio kalau perlu
+      window.dispatchEvent(new Event("mm:user-gesture"));
+      // optional UI flag
+      host.setAttribute("data-dragging", "1");
     };
 
     const onMove = (e) => {
@@ -199,7 +228,9 @@ export default function InfiniteWorksGrid({ items = [] }) {
 
     const onUp = () => {
       drag.current.down = false;
-      drag.current.dist = 0; // ⬅️ penting: bersihkan agar klik berikutnya tidak keblok
+      drag.current.dist = 0;
+      emitVelocity(0, 0); // pastikan audio balik normal saat lepas
+      host.removeAttribute("data-dragging");
     };
 
     host.addEventListener("pointerdown", onDown);
@@ -212,7 +243,7 @@ export default function InfiniteWorksGrid({ items = [] }) {
     host.addEventListener("touchend", onUp);
     host.addEventListener("touchcancel", onUp);
 
-    // ⬇️ jaga-jaga: kalau mouse dilepas di luar window/tab pindah
+    // jika mouse lepas di luar window/tab
     window.addEventListener("pointerup", onUp);
     window.addEventListener("blur", onUp);
 
@@ -230,18 +261,25 @@ export default function InfiniteWorksGrid({ items = [] }) {
     };
   }, []);
 
-  // Wheel / trackpad
+  // Wheel / trackpad (juga kirim gesture sekali)
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
+
     const onWheel = (e) => {
+      if (!gestureSentRef.current) {
+        window.dispatchEvent(new Event("mm:user-gesture"));
+        gestureSentRef.current = true;
+      }
       const dx = (e.deltaX || 0) * WHEEL_GAIN;
       const dy = (e.deltaY || 0) * WHEEL_GAIN;
       target.current.x += dx;
       target.current.y += dy;
       vel.current.x = Math.max(-MAX_V, Math.min(MAX_V, vel.current.x + dx * 0.25));
       vel.current.y = Math.max(-MAX_V, Math.min(MAX_V, vel.current.y + dy * 0.25));
+      emitVelocity(vel.current.x, vel.current.y);
     };
+
     host.addEventListener("wheel", onWheel, { passive: true });
     return () => host.removeEventListener("wheel", onWheel);
   }, []);
@@ -265,7 +303,7 @@ export default function InfiniteWorksGrid({ items = [] }) {
         overscrollBehavior: "none",
         willChange: "transform",
         background: "#E7E7E7",
-        zIndex: 10,
+        zIndex: 10, // Navbar > this
         userSelect: "none",
         WebkitUserSelect: "none",
         MozUserSelect: "none",
@@ -322,7 +360,7 @@ function Tile({ tx, ty, items, tileW, tileH, doReveal, onRevealed, dragStateRef 
         contain: "layout paint",
       }}
     >
-      {/* Grid lines 1px */}
+      {/* Grid lines 1px (pointer-events none supaya klik tidak ketutup) */}
       <div
         className="absolute inset-0 pointer-events-none"
         aria-hidden
@@ -409,12 +447,13 @@ function WorkCell({ left, top, item, reveal, delay = 0, onCellRevealed, dragStat
     >
       <Link
         href={item?.href ?? "#"}
-        className="group block h-full cursor-pointer"  // ⬅️ paksa cursor pointer meski parent cursor-grab
+        className="group block h-full cursor-pointer"
         draggable={false}
         data-interactive
         style={{ position: "relative", zIndex: 2, pointerEvents: "auto" }}
         onDragStart={(e) => e.preventDefault()}
         onClick={(e) => {
+          // klik aman: kalau habis drag jauh, batalkan navigation
           const dist = dragStateRef?.current?.dist ?? 0;
           if (dist > CLICK_DRAG_EPS) {
             e.preventDefault();
