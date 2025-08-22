@@ -1,8 +1,13 @@
-// src/components/AudioProvider.jsx
 "use client";
 
 import React, {
-  createContext, useContext, useEffect, useMemo, useRef, useState,
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
 } from "react";
 
 const AudioCtx = createContext(null);
@@ -10,44 +15,33 @@ const AudioCtx = createContext(null);
 const LS_MUTED  = "mm_audio_muted";
 const LS_VOLUME = "mm_audio_volume";
 
-// util: bikin curve waveshaper yang hangat (soft saturation)
-function makeWarmCurve(n = 512, k = 2.5) {
-  const curve = new Float32Array(n);
-  const deg = Math.PI / 180;
-  for (let i = 0; i < n; i++) {
-    const x = (i * 2) / n - 1; // -1..1
-    curve[i] = ((1 + k) * x) / (1 + k * Math.abs(x));
-  }
-  return curve;
-}
+// Durasi fade bus (ms) saat toggle mute/unmute
+const FADE_MS = 220;
 
 export default function AudioProvider({
   src = "/audio/bg.mp3",
-  initialVolume = 0.5,
+  initialVolume = 0.01,
   enableReverseGrain = true,
   children,
 }) {
-  const audioRef     = useRef(null);
-  const ctxRef       = useRef(null);
+  // Elemen <audio> untuk BGM
+  const audioRef   = useRef(null);
 
-  // graph nodes
-  const srcNodeRef   = useRef(null);
-  const preGainRef   = useRef(null);     // drive sebelum waveshaper
-  const shaperRef    = useRef(null);     // karakter
-  const filterRef    = useRef(null);     // low-pass dinamis
-  const panRef       = useRef(null);     // stereo panning
-  const masterRef    = useRef(null);     // master gain
-  const compRef      = useRef(null);     // gentle glue
+  // WebAudio graph
+  const ctxRef     = useRef(null);
+  const srcNodeRef = useRef(null);
+  const filterRef  = useRef(null);
+  const busGainRef = useRef(null);   // ⬅️ master bus untuk fade
 
-  // buffers utk granular
-  const fwdBufRef    = useRef(null);
-  const revBufRef    = useRef(null);
+  // Buffer untuk efek granular reverse
+  const fwdBufRef  = useRef(null);
+  const revBufRef  = useRef(null);
 
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted]     = useState(false);
   const [volume, setVolume]   = useState(initialVolume);
 
-  // ====== hydrate persisted ======
+  /* ========= Hydrate persisted ========= */
   useEffect(() => {
     try {
       const m = localStorage.getItem(LS_MUTED);
@@ -57,14 +51,14 @@ export default function AudioProvider({
     } catch {}
   }, []);
 
-  // ====== build <audio> ======
+  /* ========= Build <audio> element ========= */
   useEffect(() => {
     const el = new Audio();
     el.src = src;
     el.loop = true;
     el.preload = "auto";
     el.crossOrigin = "anonymous";
-    el.volume = volume;
+    el.volume = volume;  // element-level volume; busGain untuk fade master
     el.muted  = muted;
 
     const onPlay  = () => setPlaying(true);
@@ -75,14 +69,14 @@ export default function AudioProvider({
     audioRef.current = el;
 
     return () => {
-      el.pause();
+      try { el.pause(); } catch {}
       el.removeEventListener("play", onPlay);
       el.removeEventListener("pause", onPause);
       audioRef.current = null;
     };
   }, [src]);
 
-  // ====== Web Audio graph (karakter + panning) ======
+  /* ========= Web Audio graph ========= */
   useEffect(() => {
     if (!audioRef.current) return;
 
@@ -90,33 +84,25 @@ export default function AudioProvider({
     const ctx = new Ctx();
     ctxRef.current = ctx;
 
-    const source   = ctx.createMediaElementSource(audioRef.current);
-    const preGain  = ctx.createGain();               // drive in → waveshaper
-    const shaper   = ctx.createWaveShaper(); shaper.curve = makeWarmCurve(1024);
-    const lpf      = ctx.createBiquadFilter(); lpf.type = "lowpass"; lpf.frequency.value = 14000;
-    const panner   = ctx.createStereoPanner(); panner.pan.value = 0;
-    const master   = ctx.createGain(); master.gain.value = 1;      // master chain
-    const comp     = ctx.createDynamicsCompressor();                // halus tipis
-    comp.threshold.value = -14; comp.knee.value = 24; comp.ratio.value = 2; comp.attack.value = 0.02; comp.release.value = 0.2;
+    const srcNode = ctx.createMediaElementSource(audioRef.current);
+    const busGain = ctx.createGain();           // master bus
+    const filter  = ctx.createBiquadFilter();   // low-pass untuk scratch/modulasi
+    filter.type = "lowpass";
+    filter.frequency.value = 16000;
 
-    // chain: source -> lpf -> preGain -> shaper -> panner -> master -> comp -> destination
-    source.connect(lpf);
-    lpf.connect(preGain);
-    preGain.connect(shaper);
-    shaper.connect(panner);
-    panner.connect(master);
-    master.connect(comp);
-    comp.connect(ctx.destination);
+    // Graph: element -> busGain -> filter -> destination
+    srcNode.connect(busGain);
+    busGain.connect(filter);
+    filter.connect(ctx.destination);
 
-    srcNodeRef.current = source;
-    preGainRef.current = preGain;
-    shaperRef.current  = shaper;
-    filterRef.current  = lpf;
-    panRef.current     = panner;
-    masterRef.current  = master;
-    compRef.current    = comp;
+    // initial bus gain (0 kalau muted saat start, else 1)
+    busGain.gain.value = (audioRef.current.muted ? 0 : 1);
 
-    // siapkan granular buffers
+    srcNodeRef.current = srcNode;
+    filterRef.current  = filter;
+    busGainRef.current = busGain;
+
+    // Pre-decode untuk granular reverse (scratch burst)
     (async () => {
       try {
         const res = await fetch(src, { cache: "force-cache" });
@@ -124,6 +110,7 @@ export default function AudioProvider({
         const buf = await ctx.decodeAudioData(ab.slice(0));
         fwdBufRef.current = buf;
 
+        // buat reversed buffer
         const rev = ctx.createBuffer(buf.numberOfChannels, buf.length, buf.sampleRate);
         for (let ch = 0; ch < buf.numberOfChannels; ch++) {
           const s = buf.getChannelData(ch);
@@ -135,17 +122,14 @@ export default function AudioProvider({
     })();
 
     return () => {
-      try { source.disconnect(); } catch {}
-      try { lpf.disconnect(); } catch {}
-      try { preGain.disconnect(); } catch {}
-      try { shaper.disconnect(); } catch {}
-      try { panner.disconnect(); } catch {}
-      try { master.disconnect(); } catch {}
-      try { comp.disconnect(); } catch {}
+      try { srcNode.disconnect(); } catch {}
+      try { busGain.disconnect(); } catch {}
+      try { filter.disconnect(); } catch {}
+      // biarkan ctx di-GC
     };
   }, [src]);
 
-  // ====== persist & apply ======
+  /* ========= Persist & apply ========= */
   useEffect(() => {
     try { localStorage.setItem(LS_VOLUME, String(volume)); } catch {}
     if (audioRef.current) audioRef.current.volume = volume;
@@ -156,19 +140,88 @@ export default function AudioProvider({
     if (audioRef.current) audioRef.current.muted = muted;
   }, [muted]);
 
-  // ====== controls ======
-  const play = async () => {
+  /* ========= Helpers ========= */
+  const resumeCtxIfNeeded = useCallback(async () => {
+    if (ctxRef.current && ctxRef.current.state === "suspended") {
+      try { await ctxRef.current.resume(); } catch {}
+    }
+  }, []);
+
+  const play = useCallback(async () => {
     const el = audioRef.current;
     if (!el) return;
     try {
-      if (ctxRef.current?.state === "suspended") await ctxRef.current.resume();
+      await resumeCtxIfNeeded();
       await el.play();
     } catch {}
-  };
-  const pause       = () => audioRef.current?.pause();
-  const toggleMuted = () => setMuted(m => !m);
+  }, [resumeCtxIfNeeded]);
 
-  // ====== start rules (overlay, reveal, gesture) – respect mute ======
+  const pause = useCallback(() => {
+    try { audioRef.current?.pause(); } catch {}
+  }, []);
+
+  // Fade master bus gain (0..1)
+  const fadeBusTo = useCallback((target, ms = FADE_MS) => {
+    const g = busGainRef.current?.gain;
+    const ctx = ctxRef.current;
+    if (!g || !ctx) return;
+    const now = ctx.currentTime;
+    const start = g.value;
+    // gunakan exponentialApproach-ish dengan setTargetAtTime yang smooth
+    try {
+      g.cancelScheduledValues(now);
+      g.setValueAtTime(start, now);
+      // timeConstant kira-kira ~ ms/5 (semakin kecil semakin cepat)
+      const timeConstant = Math.max(0.01, (ms / 1000) / 5);
+      g.setTargetAtTime(target, now, timeConstant);
+    } catch {
+      // fallback langsung
+      g.value = target;
+    }
+  }, []);
+
+  const doBroadcast = useCallback((m) => {
+    try {
+      window.__mmAudioMuted = m;
+      window.dispatchEvent(new CustomEvent("mm:audio:state", { detail: { muted: m, volume } }));
+    } catch {}
+  }, [volume]);
+
+  const toggleMuted = useCallback(async () => {
+    const next = !muted;
+    if (next) {
+      // Mute → fade out, lalu set flag
+      fadeBusTo(0, FADE_MS);
+      setMuted(true);
+      doBroadcast(true);
+    } else {
+      // Unmute → pastikan play, lalu fade in
+      await play();
+      fadeBusTo(1, FADE_MS);
+      setMuted(false);
+      doBroadcast(false);
+    }
+  }, [muted, play, fadeBusTo, doBroadcast]);
+
+  // Setter yang aman: kalau ada komponen lain panggil setMuted, tetap pakai fade
+  const safeSetMuted = useCallback(async (next) => {
+    const resolveNext = (prev) => (typeof next === "function" ? !!next(prev) : !!next);
+    // gunakan functional update agar konsisten
+    setMuted(async (prev) => {
+      const n = resolveNext(prev);
+      if (n) {
+        fadeBusTo(0, FADE_MS);
+        doBroadcast(true);
+      } else {
+        await play();
+        fadeBusTo(1, FADE_MS);
+        doBroadcast(false);
+      }
+      return n;
+    });
+  }, [play, fadeBusTo, doBroadcast]);
+
+  /* ========= Start rules (overlay / reveal / gesture) — respect mute ========= */
   useEffect(() => {
     const tryPlay = async () => { if (!muted && !playing) await play(); };
     const onOverlay = () => void tryPlay();
@@ -182,183 +235,82 @@ export default function AudioProvider({
       window.removeEventListener("app:transition:reveal:done", onReveal);
       window.removeEventListener("mm:user-gesture", onGesture);
     };
-  }, [muted, playing]);
+  }, [muted, playing, play]);
 
-  /* ------------------------------------------------------------------
-     SCRATCH ENGINE – karakter ala Phantom
-     - rate + LPF modulasi (halus)
-     - stereo pan kiri/kanan sesuai arah drag
-     - drive (preGain) naik saat kencang → warna hangat
-     - micro grains (fwd/rev) menimpa musik → tekstur scratch
-     - chirp saat ganti arah mendadak
-     - brake bounce saat mendadak berhenti
-  -------------------------------------------------------------------*/
-
-  // helper pan/drive
-  const setPanAndDrive = (vx, speed01) => {
-    const pan = panRef.current;
-    const pre = preGainRef.current;
-    if (!pan || !pre) return;
-
-    // map vx (-∞..∞) → [-0.85..0.85]
-    const panTarget = Math.max(-0.85, Math.min(0.85, vx / 14));
-    const t = ctxRef.current?.currentTime ?? 0;
-    try { pan.pan.setTargetAtTime(panTarget, t, 0.06); } catch { pan.pan.value = panTarget; }
-
-    // drive: 1.0 .. 2.2 (masuk shaper)
-    const drive = 1.0 + speed01 * 1.2;
-    try { pre.gain.setTargetAtTime(drive, t, 0.06); } catch { pre.gain.value = drive; }
-  };
-
-  // haluskan rate & filter frekuensi
-  const smoothColor = (vx, vy) => {
+  /* ========= Scratch / modulation dari grid velocity ========= */
+  const reactSimple = useCallback((vx, vy) => {
     const el = audioRef.current;
-    const lpf = filterRef.current;
-    if (!el || !lpf) return;
+    const filter = filterRef.current;
+    if (!el || !filter) return;
 
-    const speed = Math.min(1, Math.hypot(vx, vy) / 12);       // 0..1
+    const speed = Math.min(1, Math.hypot(vx, vy) / 12);
     const sign  = Math.sign(vx) || 0;
 
-    // playbackRate 0.6..1.6
-    const targetRate = 1 + sign * 0.6 * speed;
-    el.playbackRate += (targetRate - el.playbackRate) * 0.12;
+    // playbackRate 0.5..1.7
+    const targetRate = Math.max(0.5, Math.min(1.7, 1 + sign * 0.7 * speed));
+    el.playbackRate += (targetRate - el.playbackRate) * 0.2;
 
-    // low-pass 3k..16k
-    const targetHz = 16000 - speed * 13000;
+    // low-pass 2k .. 18k (kencang → lebih muffle)
+    const targetHz = 18000 - speed * 16000;
     const t = ctxRef.current?.currentTime ?? 0;
-    try { lpf.frequency.setTargetAtTime(targetHz, t, 0.05); } catch { lpf.frequency.value = targetHz; }
+    try { filter.frequency.setTargetAtTime(targetHz, t, 0.06); }
+    catch { filter.frequency.value = targetHz; }
+  }, []);
 
-    setPanAndDrive(vx, speed);
-  };
+  const lastBurstRef = useRef(0);
+  const reverseBurst = useCallback(() => {
+    if (!enableReverseGrain || muted) return;
+    const ctx = ctxRef.current, rev = revBufRef.current, fwd = fwdBufRef.current;
+    if (!ctx || !rev || !fwd) return;
 
-  // schedule 1 grain (fwd/rev) dengan envelope singkat
-  const lastGrainRef = useRef(0);
-  const scheduleGrain = (opts) => {
-    const {
-      reverse = false, rate = 1, vol = 0.18, dur = 0.14, jitter = 0.004,
-    } = opts || {};
-    if (muted) return;
-
-    const ctx = ctxRef.current;
-    const shaper = shaperRef.current;
-    const panner = panRef.current;
-    const master = masterRef.current;
-    const fwd = fwdBufRef.current;
-    const rev = revBufRef.current;
-    if (!ctx || !shaper || !panner || !master || !fwd || !rev) return;
-
-    // throttle grains biar gak banjir
     const now = performance.now();
-    if (now - lastGrainRef.current < 28) return;
-    lastGrainRef.current = now;
+    if (now - lastBurstRef.current < 140) return;
+    lastBurstRef.current = now;
 
-    const buf = reverse ? rev : fwd;
-
-    // align ke posisi musik supaya “nyatu”
     const el = audioRef.current;
     const pos = Math.max(0, Math.min(fwd.duration - 0.05, el?.currentTime ?? 0));
 
-    // offset with a bit of jitter supaya organik
-    const off = Math.max(0, Math.min(buf.duration - dur - 0.01, pos + (Math.random() * 2 - 1) * jitter));
+    const grainDur  = 0.22;
+    const revOffset = Math.max(0, rev.duration - pos - grainDur);
 
     const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.playbackRate.value = rate;
+    src.buffer = rev;
 
-    // envelope & route: g -> shaper -> panner -> master
     const g = ctx.createGain();
+    const master = Math.max(0, Math.min(1, volume));
     g.gain.value = 0;
 
     src.connect(g);
-    g.connect(shaper);
+    g.connect(ctx.destination);
 
     const ct = ctx.currentTime;
-    const masterVol = Math.max(0, Math.min(1, volume));
-    // quick in/out envelope
     g.gain.setValueAtTime(0, ct);
-    g.gain.linearRampToValueAtTime(vol * masterVol, ct + 0.015);
-    g.gain.linearRampToValueAtTime(0, ct + dur);
+    g.gain.linearRampToValueAtTime(0.28 * master, ct + 0.02);
+    g.gain.linearRampToValueAtTime(0, ct + grainDur);
 
-    try { src.start(ct, off, dur); } catch {}
-  };
+    try { src.start(ct, revOffset, grainDur); } catch {}
+  }, [enableReverseGrain, muted, volume]);
 
-  // chirp ketika ganti arah keras
-  const lastSignRef = useRef(0);
-  const lastSpeedRef = useRef(0);
-
-  // brake saat stop mendadak
-  const brake = () => {
-    const el = audioRef.current;
-    const lpf = filterRef.current;
-    if (!el || !lpf) return;
-    const t = ctxRef.current?.currentTime ?? 0;
-
-    // kecilkan rate lalu balik ke 1
-    const cur = el.playbackRate || 1;
-    const mid = Math.max(0.65, cur * 0.75);
-    const step = () => {
-      // gunakan CSS-like lerp manual karena element gak punya automation
-      el.playbackRate += (mid - el.playbackRate) * 0.35;
-      if (Math.abs(el.playbackRate - mid) > 0.02) requestAnimationFrame(step);
-      else {
-        const back = () => {
-          el.playbackRate += (1 - el.playbackRate) * 0.15;
-          if (Math.abs(el.playbackRate - 1) > 0.02) requestAnimationFrame(back);
-        };
-        back();
-      }
-    };
-    requestAnimationFrame(step);
-
-    // turunkan LPF cepat lalu naik
-    try {
-      lpf.frequency.setTargetAtTime(2500, t, 0.02);
-      lpf.frequency.setTargetAtTime(12000, t + 0.18, 0.1);
-    } catch {}
-  };
-
-  // dengarkan velocity dari grid
   useEffect(() => {
     const onVel = (e) => {
       const { vx = 0, vy = 0 } = e.detail || {};
-      // auto-start kalau user sudah interact & unmuted
+      // gesture-like: kalau belum play & tidak muted, coba play
       if (!muted && !playing) void play();
-
-      // warna dasar
-      smoothColor(vx, vy);
-
-      const speed = Math.min(1, Math.hypot(vx, vy) / 12);
-      const sign  = Math.sign(vx) || 0;
-
-      // grains: makin kencang makin sering & panjang
-      if (!muted && speed > 0.15) {
-        const rev = vx < -2.2;                               // kiri → reverse lebih sering
-        const rate = (rev ? 0.85 : 1.05) + (Math.random() * 0.14 - 0.07) + sign * 0.18 * speed;
-        const vol  = 0.10 + speed * 0.28;
-        const dur  = 0.08 + speed * 0.14;
-        scheduleGrain({ reverse: rev, rate, vol, dur });
-      }
-
-      // chirp saat ganti arah mendadak & cukup cepat
-      if (lastSignRef.current && sign && lastSignRef.current !== sign && lastSpeedRef.current > 0.4) {
-        scheduleGrain({ reverse: sign < 0, rate: sign < 0 ? 0.9 : 1.15, vol: 0.22, dur: 0.11, jitter: 0.002 });
-      }
-      lastSignRef.current = sign;
-
-      // brake saat berhenti tiba-tiba
-      if (lastSpeedRef.current > 0.55 && speed < 0.08) brake();
-      lastSpeedRef.current = speed;
+      reactSimple(vx, vy);
+      if (vx < -4) reverseBurst();
     };
-
     window.addEventListener("mm:grid:velocity", onVel);
     return () => window.removeEventListener("mm:grid:velocity", onVel);
-  }, [muted, playing, volume, enableReverseGrain]);
+  }, [muted, playing, play, reactSimple, reverseBurst]);
 
-  // ====== context API ======
+  /* ========= Context API ========= */
   const api = useMemo(() => ({
     playing, muted, volume,
-    play, pause, toggleMuted, setMuted, setVolume,
-  }), [playing, muted, volume]);
+    play, pause,
+    toggleMuted,
+    setMuted: safeSetMuted,   // ⬅️ setter yang tetap pakai fade
+    setVolume,
+  }), [playing, muted, volume, play, pause, toggleMuted, safeSetMuted, setVolume]);
 
   return <AudioCtx.Provider value={api}>{children}</AudioCtx.Provider>;
 }

@@ -19,7 +19,7 @@ export default function RootLayout({ children }) {
         className={jetbrains.className}
         style={{ overscrollBehavior: "none", WebkitTapHighlightColor: "transparent" }}
       >
-        <AudioProvider src="/audio/bg.mp3" initialVolume={0.05}>
+        <AudioProvider src="/audio/bg.mp3" initialVolume={0.01}>
           <TransitionShell>
             {children}
             <Navbar />
