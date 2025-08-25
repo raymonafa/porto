@@ -24,7 +24,36 @@ html, body {
   background: #f8f8f8; /* was black */
   margin: 0;
   padding: 0;
-  /* overflow: hidden;  ← hapus agar tidak mengganggu layout */
+  /* overflow: hidden;  ← biarkan OFF agar tidak mengganggu layout */
 }
 
 canvas { display: block; }
+
+/* =========================
+   Custom Cursor – global hide
+   ========================= */
+.body-hides-cursor,
+.body-hides-cursor * {
+  cursor: none !important;         /* matikan semua native cursor (termasuk hand Windows) */
+}
+
+/* Kecualikan area yang butuh cursor bawaan (beri data-cursor="native") */
+.body-hides-cursor [data-cursor="native"],
+.body-hides-cursor [data-cursor="native"] * {
+  cursor: auto !important;
+}
+
+/* Tetap tampilkan caret untuk input/textarea/editor */
+.body-hides-cursor input,
+.body-hides-cursor textarea,
+.body-hides-cursor [contenteditable="true"] {
+  cursor: text !important;
+}
+
+/* Di device tanpa kursor (touch), jangan paksa none */
+@media (pointer: coarse) {
+  .body-hides-cursor,
+  .body-hides-cursor * {
+    cursor: auto !important;
+  }
+}

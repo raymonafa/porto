@@ -7,6 +7,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "re
 import gsap from "gsap";
 import RevealGate from "@/components/RevealGate";
 import RouteReadyPing from "@/components/RouteReadyPing";
+import CustomCursor from "@/components/CustomCursor";
 
 const asciiCharacters = ["⁕", "※", "⊙", "∘", "∀", "9", "1", ">", "-", "6"];
 
@@ -186,7 +187,7 @@ export default function Home() {
 
   return (
     <RevealGate enabled timeout={1500}>
-      <main className="relative h-screen w-screen overflow-hidden bg-[#f8f8f8] font-mono text-black">
+      <main className="relative h-screen w-screen overflow-hidden bg-[#f8f8f8] font-mono text-black"style={{ cursor: "none" }} >
         {/* Route ready ping (sinkron dengan PixelTransition) */}
         <RouteReadyPing />
 
@@ -232,11 +233,14 @@ export default function Home() {
             </div>
 
             {/* Canvas 3D di depan headline */}
-            <div className="absolute inset-0 z-30 pointer-events-none">
+            <div className="absolute inset-0 z-30 pointer-events-auto">
               <Canvas3D />
             </div>
           </div>
         )}
+         {/* ⬇️ Cursor overlay selalu paling atas, tidak menghalangi klik */}
+        {/* <CustomCursor size={24} hotspot={{ x: 2, y: 2 }} src="/cursors/default.svg" /> */}
+
       </main>
     </RevealGate>
   );

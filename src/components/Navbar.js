@@ -95,7 +95,7 @@ export default function Navbar() {
   return (
     <>
       <nav
-        className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[12000] flex items-center gap-px pointer-events-auto"
+        className="fixed bottom-7 left-1/2 -translate-x-1/2 z-[12000] flex items-center gap-px pointer-events-auto"
         data-suppress-trail
       >
         <div ref={btn1} className="inline-block">
@@ -138,7 +138,7 @@ export default function Navbar() {
         className="fixed bottom-6 z-[12000] pointer-events-auto select-none"
         data-suppress-trail
       >
-      <SoundToggle className="ml-2" iconSize={20} rows={3} />
+      <SoundToggle className="ml-2 top-0" iconSize={20} rows={3} />
       </div>
     </>
   );

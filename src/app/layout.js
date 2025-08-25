@@ -4,6 +4,7 @@ import { JetBrains_Mono } from "next/font/google";
 import TransitionShell from "@/components/TransitionShell";
 import Navbar from "@/components/Navbar";
 import AudioProvider from "@/components/AudioProvider";
+import CustomCursor from "@/components/CustomCursor"; // ⬅️ pastikan file ini ada
 
 const jetbrains = JetBrains_Mono({ subsets: ["latin"] });
 
@@ -16,11 +17,12 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body
-        className={jetbrains.className}
+        className={`${jetbrains.className} body-hides-cursor`} // ⬅️ aktifkan global hide
         style={{ overscrollBehavior: "none", WebkitTapHighlightColor: "transparent" }}
       >
         <AudioProvider src="/audio/bg.mp3" initialVolume={0.01}>
           <TransitionShell>
+            <CustomCursor /> {/* overlay cursor kustom */}
             {children}
             <Navbar />
           </TransitionShell>

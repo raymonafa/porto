@@ -12,7 +12,7 @@ const CRTRetroOverlay = dynamic(() => import("@/components/CRTRetroOverlay"), { 
 
 export default function WorksPage() {
   return (
-    <main className="relative min-h-screen w-screen bg-[#e7e7e7] text-black overflow-hidden pb-24">
+    <main className="relative min-h-screen w-screen bg-[#e7e7e7] text-black overflow-hidden pb-24" style={{ cursor: "none" }}>
       {/* sinkronisasi dengan transition controller */}
       <RouteReadyPing />
 

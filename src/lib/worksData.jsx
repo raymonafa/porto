@@ -2,7 +2,7 @@
 export const WORKS = [
   {
     id: "w1",
-    title: "Project Alpha",
+    title: "BITAVERSE",
     href: "/work/alpha",
     color: "#2563EB",
     logoText: "LOGO",          // atau logoSrc: "/logos/alpha.svg"
@@ -12,7 +12,7 @@ export const WORKS = [
   },
   {
     id: "w2",
-    title: "Project Beta",
+    title: "PHOTOGRAMS",
     href: "/work/beta",
     color: "#F59E0B",
     logoText: "β",
@@ -22,7 +22,7 @@ export const WORKS = [
   },
   {
     id: "w3",
-    title: "Project Gamma",
+    title: "MYTELKOMSEL BASIC",
     href: "/work/gamma",
     color: "#10B981",
     logoText: "G",
@@ -32,7 +32,7 @@ export const WORKS = [
   },
   {
     id: "w4",
-    title: "Project Delta",
+    title: "ASPACE AMILD",
     href: "/work/delta",
     color: "#EF4444",
     logoText: "Δ",
@@ -42,7 +42,7 @@ export const WORKS = [
   },
   {
     id: "w5",
-    title: "Project Epsilon",
+    title: "COPPER",
     href: "/work/epsilon",
     color: "#8B5CF6",
     logoText: "EPS",
@@ -52,7 +52,7 @@ export const WORKS = [
   },
   {
     id: "w6",
-    title: "Project Zeta",
+    title: "SEEDS",
     href: "/work/zeta",
     color: "#06B6D4",
     logoText: "ZETA",
@@ -62,7 +62,7 @@ export const WORKS = [
   },
   {
     id: "w7",
-    title: "Project Eta",
+    title: "HAMMER APP",
     href: "/work/eta",
     color: "#F43F5E",
     logoText: "ETA",
@@ -72,7 +72,7 @@ export const WORKS = [
   },
   {
     id: "w8",
-    title: "Project Theta",
+    title: "PLAYFEST",
     href: "/work/theta",
     color: "#22C55E",
     logoText: "TH",

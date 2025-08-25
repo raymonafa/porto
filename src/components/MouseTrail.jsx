@@ -2,7 +2,7 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
 
-const asciiCharacters = ["⁕", "※", "⊙", "∘", "∀", "9", "1", ">", "-", "6"];
+const asciiCharacters = ["✧", "■", "o", "∘", "∀", "M", "1", ">", "N", "☺︎"];
 const gridSize = 32;
 const INTERACTIVE_SELECTOR = "button, a, [data-hover-interactive], [data-suppress-trail]";
 

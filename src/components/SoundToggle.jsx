@@ -16,8 +16,8 @@ export default function SoundToggle({
   className = "",
   shapeSrc = "/buttons/soundShape.svg",
   width = 112,
-  height = 44,
-  iconSize = 20,
+  height = 40,
+  iconSize = 24,
   cols = 8,
   rows = 3,            // ← ganti ke 2 kalau mau 2 baris; 3 untuk 3 baris
 }) {
@@ -38,8 +38,8 @@ export default function SoundToggle({
    * ========================= */
   const dotsData = useMemo(() => {
     const W = 20, H = 20;
-    const mx = 2;                     // margin horizontal
-    const my = 3;                     // margin vertical
+    const mx = 1;                     // margin horizontal
+    const my = 4;                     // margin vertical
     const xs = Array.from({ length: cols }, (_, i) =>
       mx + (i * (W - mx * 2)) / (cols - 1)
     );

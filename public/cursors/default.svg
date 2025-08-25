@@ -1,0 +1,51 @@
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="1" y="2" width="10" height="9" fill="white"/>
+<rect x="8" y="8" width="6" height="6" fill="white"/>
+<rect y="1" width="13" height="1" fill="black"/>
+<rect y="1" width="13" height="1" fill="black"/>
+<rect x="1" width="11" height="1" fill="black"/>
+<rect x="1" y="2" width="10" height="1" transform="rotate(90 1 2)" fill="black"/>
+<rect x="12" y="2" width="6" height="1" transform="rotate(90 12 2)" fill="black"/>
+<rect x="13" y="6" width="3" height="1" transform="rotate(90 13 6)" fill="black"/>
+<rect x="14" y="7" width="3" height="1" transform="rotate(90 14 7)" fill="black"/>
+<rect x="15" y="8" width="6" height="1" transform="rotate(90 15 8)" fill="black"/>
+<rect x="16" y="9" width="4" height="1" transform="rotate(90 16 9)" fill="black"/>
+<rect x="14" y="12" width="3" height="1" transform="rotate(90 14 12)" fill="black"/>
+<rect x="13" y="13" width="3" height="1" transform="rotate(90 13 13)" fill="black"/>
+<rect x="10" y="13" width="3" height="1" transform="rotate(90 10 13)" fill="black"/>
+<rect x="11" y="14" width="2" height="1" transform="rotate(90 11 14)" fill="black"/>
+<rect x="12" y="14" width="2" height="1" transform="rotate(90 12 14)" fill="black"/>
+<rect x="9" y="12" width="3" height="1" transform="rotate(90 9 12)" fill="black"/>
+<rect x="8" y="11" width="3" height="1" transform="rotate(90 8 11)" fill="black"/>
+<rect width="3" height="1" transform="matrix(-4.37114e-08 1 1 4.37114e-08 6 10)" fill="black"/>
+<rect width="3" height="1" transform="matrix(-4.37114e-08 1 1 4.37114e-08 5 9)" fill="black"/>
+<rect x="11" y="4" width="3" height="1" transform="rotate(90 11 4)" fill="black"/>
+<rect x="10" y="5" width="1" height="1" transform="rotate(90 10 5)" fill="black"/>
+<rect x="2" y="2" width="11" height="1" transform="rotate(90 2 2)" fill="black"/>
+<rect x="13" y="2" width="3" height="1" transform="rotate(90 13 2)" fill="black"/>
+<rect x="5" y="13" width="3" height="1" transform="rotate(-180 5 13)" fill="black"/>
+<rect x="5" y="12" width="3" height="1" transform="rotate(-180 5 12)" fill="black"/>
+<rect x="4" y="11" width="1" height="1" transform="rotate(-90 4 11)" fill="black"/>
+<rect x="10" y="14" width="1" height="1" transform="rotate(-90 10 14)" fill="#ABABAB"/>
+<rect x="10" y="14" width="1" height="1" transform="rotate(-90 10 14)" fill="#ABABAB"/>
+<rect x="11" y="14" width="1" height="1" transform="rotate(-90 11 14)" fill="#ABABAB"/>
+<rect x="10" y="13" width="1" height="1" transform="rotate(-90 10 13)" fill="#ABABAB"/>
+<rect x="9" y="13" width="1" height="1" transform="rotate(-90 9 13)" fill="#ABABAB"/>
+<rect x="9" y="12" width="1" height="1" transform="rotate(-90 9 12)" fill="#ABABAB"/>
+<rect x="8" y="12" width="1" height="1" transform="rotate(-90 8 12)" fill="#ABABAB"/>
+<rect x="7" y="11" width="1" height="1" transform="rotate(-90 7 11)" fill="#ABABAB"/>
+<rect x="7" y="10" width="1" height="1" transform="rotate(-90 7 10)" fill="#ABABAB"/>
+<rect x="6" y="10" width="1" height="1" transform="rotate(-90 6 10)" fill="#ABABAB"/>
+<rect x="6" y="9" width="1" height="1" transform="rotate(-90 6 9)" fill="#ABABAB"/>
+<rect x="5" y="9" width="1" height="1" transform="rotate(-90 5 9)" fill="#ABABAB"/>
+<rect x="5" y="8" width="1" height="1" transform="rotate(-90 5 8)" fill="#ABABAB"/>
+<rect x="4" y="7" width="1" height="1" transform="rotate(-90 4 7)" fill="#ABABAB"/>
+<rect x="4" y="10" width="1" height="1" transform="rotate(-90 4 10)" fill="#ABABAB"/>
+<rect x="3" y="10" width="1" height="1" transform="rotate(-90 3 10)" fill="#ABABAB"/>
+<rect x="3" y="9" width="1" height="1" transform="rotate(-90 3 9)" fill="#ABABAB"/>
+<rect x="4" y="9" width="1" height="1" transform="rotate(-90 4 9)" fill="#ABABAB"/>
+<rect x="4" y="8" width="1" height="1" transform="rotate(-90 4 8)" fill="#ABABAB"/>
+<rect x="3" y="11" width="1" height="1" transform="rotate(-90 3 11)" fill="#ABABAB"/>
+<rect x="2" y="11" width="1" height="1" transform="rotate(-90 2 11)" fill="#ABABAB"/>
+<rect x="8" y="11" width="1" height="1" transform="rotate(-90 8 11)" fill="#ABABAB"/>
+</svg>
