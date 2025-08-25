@@ -9,7 +9,7 @@ import RevealGate from "@/components/RevealGate";
 import RouteReadyPing from "@/components/RouteReadyPing";
 import CustomCursor from "@/components/CustomCursor";
 
-const asciiCharacters = ["⁕", "※", "⊙", "∘", "∀", "9", "1", ">", "-", "6"];
+const asciiCharacters = ["✧", "■", "o", "∘", "∀", "M", "1", ">", "N", "☺︎"];
 
 export default function Home() {
   // 2 teks: MANAMONA (kiri) & 2025 (kanan)
@@ -233,7 +233,7 @@ export default function Home() {
             </div>
 
             {/* Canvas 3D di depan headline */}
-            <div className="absolute inset-0 z-30 pointer-events-auto">
+            <div className="absolute inset-0 z-30 pointer-events-none">
               <Canvas3D />
             </div>
           </div>

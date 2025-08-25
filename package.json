@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@fontsource/boldonse": "^5.2.3",
-    "@react-three/drei": "^10.6.1",
+    "@react-three/drei": "^10.7.4",
     "@react-three/fiber": "^9.3.0",
     "@react-three/postprocessing": "^3.0.4",
     "@react-three/rapier": "^2.1.0",
