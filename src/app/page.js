@@ -2,7 +2,7 @@
 "use client";
 
 import Canvas3D from "@/components/Canvas3D";
-import MouseTrail from "@/components/MouseTrail";
+// import MouseTrail from "@/components/MouseTrail";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
 import RevealGate from "@/components/RevealGate";
@@ -224,7 +224,7 @@ export default function Home() {
           <div ref={contentRef}>
             {/* efek yang tidak menghalangi klik */}
             <div className="pointer-events-none">
-              <MouseTrail />
+              {/* <MouseTrail /> */}
             </div>
 
             {/* Glow blur hijau */}

@@ -6,12 +6,7 @@ import * as THREE from "three";
 import { useThree, useFrame } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
 
-/* ---------- Persisten anti-restart (StrictMode/Suspense safe) ----------
-   Simpan status reveal per URL di scope module (persist antar re-mount).
-   bornWall: performance.now() saat reveal dimulai.
-   startOffsets: Float32Array offset mulai tiap voxel.
-   maxEnd: waktu selesai (detik) = max(startOffsets) + revealDuration.
---------------------------------------------------------------------------- */
+/* ---------- Persisten anti-restart (StrictMode/Suspense safe) ---------- */
 const REVEAL_STORE =
   typeof window !== "undefined"
     ? (window.__VOXEL_REVEAL_STORE__ ||= new Map())
@@ -37,7 +32,9 @@ export default function VoxelFromGLB({
   revealDuration = 0.45,
   revealStagger = 0.006,
   revealOrder = "center-out", // "random" | "center-out" | "top-down" | "bottom-up"
+  // callbacks
   onBounds,
+  onRevealDone,
   ...props
 }) {
   const { camera } = useThree();
@@ -59,6 +56,10 @@ export default function VoxelFromGLB({
   const bornWallRef = React.useRef(null);        // performance.now() saat mulai
   const startOffsetsRef = React.useRef(null);    // Float32Array offsets
   const maxEndRef = React.useRef(0);             // detik sampai selesai
+  const firedDoneRef = React.useRef(false);      // persist "done" global (store)
+
+  // notify parent sekali PER MOUNT
+  const parentNotifiedRef = React.useRef(false);
 
   // anti-hover saat idle
   const lastMouseMoveT = React.useRef(0);
@@ -194,7 +195,6 @@ export default function VoxelFromGLB({
     let store = REVEAL_STORE.get(key);
     if (!store || !store.startOffsets || store.startOffsets.length !== count) {
       const order = new Array(count).fill(0).map((_, i) => i);
-      // urutkan sesuai mode
       if (revealOrder === "random") {
         order.sort(() => Math.random() - 0.5);
       } else if (revealOrder === "top-down") {
@@ -215,13 +215,14 @@ export default function VoxelFromGLB({
       const maxStart = startOffsets.length ? startOffsets[order[order.length - 1]] : 0;
       const maxEnd = maxStart + revealDuration;
 
-      store = { startOffsets, bornWall: null, maxEnd };
+      store = { startOffsets, bornWall: null, maxEnd, firedDone: false };
       REVEAL_STORE.set(key, store);
     }
 
     // simpan di refs
     startOffsetsRef.current = store.startOffsets;
     maxEndRef.current = store.maxEnd;
+    firedDoneRef.current = !!store.firedDone;
     // pakai bornWall lama kalau sudah ada → mencegah restart
     bornWallRef.current = store.bornWall;
 
@@ -232,11 +233,11 @@ export default function VoxelFromGLB({
       roughness: 0.65,
       metalness: 0.0,
       flatShading: true,
-      color: 0xffffff, // warna dari instanceColor
+      color: 0xffffff, // pakai instanceColor
     });
     const inst = new THREE.InstancedMesh(geom, mat, count);
     inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    inst.castShadow = true;     // cast shadow
+    inst.castShadow = true;
     inst.receiveShadow = true;
 
     if (!inst.instanceColor) {
@@ -289,6 +290,12 @@ export default function VoxelFromGLB({
     }
     inst.instanceMatrix.needsUpdate = true;
 
+    // >>> jika sudah selesai saat mount (persisted), kabari parent sekali
+    if (done && !parentNotifiedRef.current) {
+      parentNotifiedRef.current = true;
+      try { onRevealDone && onRevealDone(); } catch {}
+    }
+
     group.current.add(inst);
     instRef.current = inst;
 
@@ -330,14 +337,14 @@ export default function VoxelFromGLB({
     const N = NRef.current;
     if (!inst || !N) return;
 
+    // start clock sekali dan persist di store
     if (!bornWallRef.current) {
       bornWallRef.current = performance.now();
-      // simpan di store biar persist
       const count = NRef.current;
       const key = `${url}|${revealOrder}|${count}`;
-      const s = REVEAL_STORE.get(key);
-      if (s) s.bornWall = bornWallRef.current;
-      else REVEAL_STORE.set(key, { bornWall: bornWallRef.current, startOffsets: startOffsetsRef.current, maxEnd: maxEndRef.current });
+      const s = REVEAL_STORE.get(key) || {};
+      s.bornWall = bornWallRef.current;
+      REVEAL_STORE.set(key, s);
     }
 
     const pos = posRef.current, vel = velRef.current, tgt = tgtRef.current;
@@ -349,6 +356,22 @@ export default function VoxelFromGLB({
 
     const elapsed = (performance.now() - bornWallRef.current) / 1000;
     const doneReveal = elapsed >= maxEndRef.current - 1e-6;
+
+    // persist "done" ke store (sekali total), dan notify parent sekali PER MOUNT
+    if (doneReveal) {
+      if (!firedDoneRef.current) {
+        firedDoneRef.current = true;
+        const count = NRef.current;
+        const key = `${url}|${revealOrder}|${count}`;
+        const s = REVEAL_STORE.get(key) || {};
+        s.firedDone = true;
+        REVEAL_STORE.set(key, s);
+      }
+      if (!parentNotifiedRef.current) {
+        parentNotifiedRef.current = true;
+        try { onRevealDone && onRevealDone(); } catch {}
+      }
+    }
 
     const tpos = new THREE.Vector3();
     const tquat = new THREE.Quaternion();
@@ -379,7 +402,7 @@ export default function VoxelFromGLB({
       vel[ix]   += ax * dt;  vel[ix+1] += ay * dt;  vel[ix+2] += az * dt;
       pos[ix]   += vel[ix] * dt;  pos[ix+1] += vel[ix+1] * dt;  pos[ix+2] += vel[ix+2] * dt;
 
-      // reveal scale (sekali jalan, no-restart)
+      // reveal scale
       let e = 1;
       if (!doneReveal) {
         let u = (elapsed - startOffsetsRef.current[i]) / Math.max(revealDuration, 1e-6);

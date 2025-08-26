@@ -5,7 +5,7 @@ import gsap from "gsap";
 import ShapeButton from "@/components/ShapeButton";
 import SoundToggle from "@/components/SoundToggle";
 
-const ASCII = ["⁕","※","⊙","∘","∀","9","1",">","-","6"];
+const ASCII = ["✧", "■", "o", "∘", "∀", "M", "1", ">", "N", "☺︎"];
 
 export default function Navbar() {
   const pathname = usePathname();

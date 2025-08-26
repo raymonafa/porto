@@ -3,9 +3,10 @@
 
 import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-// DIBIARKAN untuk nanti dipakai lagi (sekarang dimatikan)
+// Disimpan untuk nanti (sekarang dimatikan)
 import { EffectComposer, Pixelation, ChromaticAberration, Noise } from "@react-three/postprocessing";
 import * as THREE from "three";
+import { gsap } from "gsap";
 import VoxelFromGLB from "@/components/VoxelFromGLB";
 
 /* ================== KNOBS ================== */
@@ -16,14 +17,14 @@ const CAMERA_FOV = 45;
 
 /** OBJECT */
 const OBJ_POS   = [0, 0.1, 0];             // [x, y, z]
-const OBJ_ROT   = deg([-3, 172, 0]);        // [degX, degY, degZ]
+const OBJ_ROT   = deg([0, 162, 0]);        // [degX, degY, degZ]
 const OBJ_SCALE = 1.0;                     // number atau [x, y, z]
 
-/** Mouse-tilt + micro intro */
+/** Mouse-tilt + GSAP intro (spin berkurang dengan power4.inOut) */
 const MAX_TILT_X = 0.15;
 const MAX_TILT_Y = 0.30;
-const INTRO_SPIN = 8;   // rad ekstra di awal
-const INTRO_TIME = 0.1;    // detik
+const INTRO_SPIN = 3;                      // rad ekstra di awal
+const INTRO_TIME = 1.5;                      // detik
 
 /** Glitch FX (awal saja) — DINONAKTIFKAN untuk sekarang */
 const ENABLE_GLITCH = false;
@@ -35,16 +36,23 @@ const CA_START = 0.0015;
 const CA_END = 0.0001;
 const NOISE_OPACITY = 0.15;
 
-/** Shadows & Floor (set kecil agar pixelated) */
-const SHADOW_MAP_SIZE = 128;   // turunkan ke 64/32 untuk lebih “kotak”
+/** Shadows & Floor (kecil → pixelated) */
+const SHADOW_MAP_SIZE = 128;               // 64/32 = lebih kotak
 const SHADOW_OPACITY  = 0.18;
 const FLOOR_SIZE      = 12;
-const FLOAT_GAP       = 0.24;
+const FLOAT_GAP       = 0.18;
 
-/** REVEAL PER-VOXEL (baru) */
-const REVEAL_DURATION = 0.45;        // durasi tiap voxel
-const REVEAL_STAGGER  = 0.006;       // jeda antar voxel
-const REVEAL_ORDER    = "bottom-up"; // "random" | "center-out" | "top-down" | "bottom-up"
+/** REVEAL PER-VOXEL (di-handle di VoxelFromGLB) */
+const REVEAL_DURATION = 0.45;
+const REVEAL_STAGGER  = 0.006;
+const REVEAL_ORDER    = "bottom-up";          // "random" | "center-out" | "top-down" | "bottom-up"
+
+/** FLOATING: SELALU AKTIF (tanpa syarat intro/reveal) */
+const FLOAT_ENABLED    = true;
+const FLOAT_AMP        = 0.03;             // world units; naikin kalau mau lebih “goyang”
+const FLOAT_SPEED      = 1.25;             // kecepatan
+const FLOAT_RAMP_TIME  = 0.5;              // ramp masuk biar halus
+const FLOAT_SMOOTH_LERP= 0.18;             // smoothing lerp posisi Y
 /* ============================================== */
 
 function deg([x, y, z]) {
@@ -121,26 +129,86 @@ function GlitchFX({ trigger = 0 }) {
   );
 }
 
-/* FollowRig: posisi/rot/scale + mouse tilt + micro intro */
-function FollowRig({ children, mouse, baseRot = [0,0,0], position = [0,0,0], scale = 1 }) {
+/* FollowRig: mouse tilt + GSAP intro + floating (SELALU jalan) */
+function FollowRig({
+  children,
+  mouse,
+  baseRot = [0,0,0],
+  position = [0,0,0],
+  scale = 1,
+  floatEnabled = false,
+  floatAmp = 0.03,
+  floatSpeed = 1.0,
+  // tetap diterima, tapi tidak dipakai lagi untuk gating
+  revealDone = false
+}) {
   const rig = useRef();
-  const introStart = useRef(performance.now());
 
-  useFrame(() => {
+  // Intro spin state (1 -> 0), eased by GSAP power4.inOut
+  const intro = useRef({ v: 1 });
+  const introTweenRef = useRef(null);
+
+  // Floating gain 0->1 untuk transisi halus (SELALU dimulai pada mount)
+  const floatState = useRef({ g: 0 });
+  const floatTweenRef = useRef(null);
+
+  const baseY = position[1];
+  const phase = useRef(Math.random() * Math.PI * 2); // beda fase tiap mount
+  const targetY = useRef(baseY);
+
+  // GSAP intro (sekali)
+  useEffect(() => {
+    introTweenRef.current?.kill();
+    intro.current.v = 1;
+    introTweenRef.current = gsap.to(intro.current, {
+      v: 0,
+      duration: INTRO_TIME,
+      ease: "power2.inOut"
+    });
+
+    // Mulai floating LANGSUNG setelah mount (tanpa syarat)
+    floatTweenRef.current?.kill();
+    floatState.current.g = 0;
+    floatTweenRef.current = gsap.to(floatState.current, {
+      g: 1,
+      duration: FLOAT_RAMP_TIME,
+      ease: "power2.out"
+    });
+
+    return () => {
+      introTweenRef.current?.kill();
+      floatTweenRef.current?.kill();
+    };
+  }, []);
+
+  useFrame((state) => {
     const g = rig.current;
     if (!g) return;
 
-    // micro-rotation intro (ease-out)
-    const t = (performance.now() - introStart.current) / 1000;
-    const u = Math.min(t / INTRO_TIME, 1);
-    const intro = (1 - u) * (1 - u);
+    // micro intro spin (reduce over time dengan GSAP)
+    const spin = INTRO_SPIN * intro.current.v;
 
+    // mouse tilt
     const tx = baseRot[0] + (mouse?.y || 0) * MAX_TILT_X;
-    const ty = baseRot[1] + (mouse?.x || 0) * MAX_TILT_Y + INTRO_SPIN * intro;
+    const ty = baseRot[1] + (mouse?.x || 0) * MAX_TILT_Y + spin;
 
     g.rotation.x += (tx - g.rotation.x) * 0.08;
     g.rotation.y += (ty - g.rotation.y) * 0.08;
     g.rotation.z  = baseRot[2];
+
+    // floating: SELALU aktif (jika di-enable), dengan gain ramp
+    if (floatEnabled) {
+      const t = state.clock.getElapsedTime();
+      const off = Math.sin(t * floatSpeed + phase.current) * floatAmp * floatState.current.g;
+      targetY.current = baseY + off;
+    } else {
+      targetY.current = baseY;
+    }
+
+    // Smoothing biar gerak terlihat jelas & tidak “patah”
+    g.position.y = THREE.MathUtils.lerp(g.position.y, targetY.current, FLOAT_SMOOTH_LERP);
+    g.position.x = position[0];
+    g.position.z = position[2];
   });
 
   return (
@@ -165,6 +233,14 @@ export default function Canvas3D() {
   const [fxTrigger] = useState(0);
   const [groundY, setGroundY] = useState(-0.5);
   const floorY = groundY - FLOAT_GAP; // floating + shadow tegas
+
+  // MouseTrail integration (cocok dengan MouseTrail.jsx)
+  const handleHoverOn = () => {
+    try { window.dispatchEvent(new Event("trail:suppress:on")); } catch {}
+  };
+  const handleHoverOff = () => {
+    try { window.dispatchEvent(new Event("trail:suppress:off")); } catch {}
+  };
 
   return (
     <Canvas
@@ -206,7 +282,17 @@ export default function Canvas3D() {
 
       {/* Konten 3D */}
       <Suspense fallback={null}>
-        <FollowRig mouse={mouse.current} baseRot={OBJ_ROT} position={OBJ_POS} scale={OBJ_SCALE}>
+        <FollowRig
+          mouse={mouse.current}
+          baseRot={OBJ_ROT}
+          position={OBJ_POS}
+          scale={OBJ_SCALE}
+          floatEnabled={FLOAT_ENABLED}
+          floatAmp={FLOAT_AMP}
+          floatSpeed={FLOAT_SPEED}
+          // revealDone tidak dipakai untuk gating lagi
+          revealDone={true}
+        >
           <VoxelFromGLB
             url="/models/3D.glb"
             shrink={0.99}
@@ -215,11 +301,15 @@ export default function Canvas3D() {
             repel={8}
             spring={12}
             damping={4}
-            // REVEAL PER-VOXEL
+            // REVEAL PER-VOXEL (tetap jalan di komponen ini)
             revealDuration={REVEAL_DURATION}
             revealStagger={REVEAL_STAGGER}
             revealOrder={REVEAL_ORDER}
+            // info ground
             onBounds={({ minY }) => setGroundY(minY + OBJ_POS[1])}
+            // MouseTrail interop
+            onPointerOver={handleHoverOn}
+            onPointerOut={handleHoverOff}
           />
         </FollowRig>
 
