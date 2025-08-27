@@ -2,38 +2,42 @@
 "use client";
 
 import Canvas3D from "@/components/Canvas3D";
-// import MouseTrail from "@/components/MouseTrail";
+import MouseTrail from "@/components/MouseTrail";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
 import RevealGate from "@/components/RevealGate";
 import RouteReadyPing from "@/components/RouteReadyPing";
-import CustomCursor from "@/components/CustomCursor";
+import HeadlineLayer from "@/components/HeadlinePixelReveal";
+// import CustomCursor from "@/components/CustomCursor";
 
 const asciiCharacters = ["✧", "■", "o", "∘", "∀", "M", "1", ">", "N", "☺︎"];
 
 export default function Home() {
-  // 2 teks: MANAMONA (kiri) & 2025 (kanan)
+  // overlay typing
   const texts = useMemo(() => ["MANAMONA", "2025"], []);
-  const [typed, setTyped] = useState(["", ""]);      // overlay typing
+  const [typed, setTyped] = useState(["", ""]);
   const [typingComplete, setTypingComplete] = useState(false);
 
-  // Hydration-safe
   const [isMounted, setIsMounted] = useState(false);
   useEffect(() => setIsMounted(true), []);
 
-  // Overlay + FLIP refs/state
-  const overlayRef = useRef(null);   // overlay BG only
-  const leftRef = useRef(null);      // MANAMONA
-  const rightRef = useRef(null);     // 2025
+  const overlayRef = useRef(null);
+  const leftRef = useRef(null);
+  const rightRef = useRef(null);
   const contentRef = useRef(null);
 
   const overlayDoneRef = useRef(false);
   const [showContent, setShowContent] = useState(false);
-  const [overlayActive, setOverlayActive] = useState(true);     // z-index control
-  const [overlayCentered, setOverlayCentered] = useState(true); // true: center row, false: edges
-  const didRunFlip = useRef(false); // guard FLIP agar tidak rerun
+  const [overlayActive, setOverlayActive] = useState(true);
+  const [overlayCentered, setOverlayCentered] = useState(true);
+  const didRunFlip = useRef(false);
 
-  // ===== Knobs =====
+  // Canvas timing: 100ms setelah headline start (sekali)
+  const [showCanvas, setShowCanvas] = useState(false);
+  const canvasTimerRef = useRef(null);
+  const canvasShownRef = useRef(false);
+
+  // knobs
   const TYPING_START_DELAY_MS = 1200;
   const SCRAMBLE_MS = 20;
   const REVEAL_MS = 200;
@@ -42,7 +46,7 @@ export default function Home() {
   const SLIDE_MS = 1000;
   const CONTENT_DELAY_MS = 200;
 
-  // Typing per karakter: scramble + reveal
+  /* ===== Typing overlay ===== */
   useEffect(() => {
     if (!isMounted || !overlayActive) return;
 
@@ -106,7 +110,7 @@ export default function Home() {
     };
   }, [isMounted, overlayActive, texts]);
 
-  // keduanya selesai diketik → typingComplete sekali saja
+  /* ===== Mark typing done ===== */
   useEffect(() => {
     if (!overlayActive) return;
     if (!typingComplete && typed[0] === texts[0] && typed[1] === texts[1]) {
@@ -114,7 +118,7 @@ export default function Home() {
     }
   }, [typed, overlayActive, typingComplete, texts]);
 
-  // GSAP FLIP: center → justify-between (edges) setelah typing selesai
+  /* ===== FLIP center → edges ===== */
   useLayoutEffect(() => {
     if (!isMounted || !overlayActive || !typingComplete || didRunFlip.current) return;
     if (!leftRef.current || !rightRef.current || !overlayRef.current) return;
@@ -126,14 +130,11 @@ export default function Home() {
     const L = leftRef.current;
     const R = rightRef.current;
 
-    // 1) Measure posisi AWAL (row masih centered)
     const l0 = L.getBoundingClientRect();
     const r0 = R.getBoundingClientRect();
 
-    // 2) Switch layout ke justify-between (final)
     setOverlayCentered(false);
 
-    // 3) Tunggu DOM apply, lalu measure AKHIR dan set transform agar tampak tetap di tempat
     requestAnimationFrame(() => {
       const l1 = L.getBoundingClientRect();
       const r1 = R.getBoundingClientRect();
@@ -145,7 +146,6 @@ export default function Home() {
       gsap.set(L, { x: dxL });
       gsap.set(R, { x: dxR });
 
-      // 4) Timeline: HOLD → SLIDE → DELAY → mount content
       const tl = gsap.timeline({ defaults: { ease: "power3.out" } });
       tl.to({}, { duration: CENTER_HOLD_MS / 1000 })
         .to(L, { x: 0, duration: SLIDE_MS / 1000 }, 0)
@@ -155,16 +155,14 @@ export default function Home() {
     });
   }, [isMounted, overlayActive, typingComplete]);
 
-  // Konten dimount → fade-in konten & fade-out overlay,
-  // lalu kirim sinyal ke Navbar *dan* ke AudioProvider (autoplay)
+  /* ===== Show content, overlay fade-out only (headline/canvas no fade) ===== */
   useEffect(() => {
     if (!showContent) return;
     if (!contentRef.current || !overlayRef.current) return;
 
-    gsap.set(contentRef.current, { autoAlpha: 0 });
-
+    // Jangan fade-in konten → set langsung visible
     const tl = gsap.timeline({ defaults: { ease: "power2.out" } });
-    tl.to(contentRef.current, { autoAlpha: 1, duration: 0.6 }, 0);
+    tl.set(contentRef.current, { autoAlpha: 1 }, 0);
     tl.to(
       overlayRef.current,
       {
@@ -173,22 +171,33 @@ export default function Home() {
         onComplete: () => {
           overlayDoneRef.current = true;
           setOverlayActive(false);
-          // 🔔 Beri sinyal ke Navbar agar reveal from bottom
           window.dispatchEvent(new Event("mm:reveal:nav"));
-          // 🔔 Beri sinyal ke AudioProvider → coba autoplay BGM
           window.dispatchEvent(new Event("mm:overlay:done"));
         },
       },
-      "-=0.2"
+      0
     );
-
     return () => tl.kill();
+  }, [showContent]);
+
+  /* ===== Start headline (0ms) & canvas (+100ms) sekali ===== */
+  useEffect(() => {
+    if (!showContent || canvasShownRef.current) return;
+    canvasShownRef.current = true; // guard supaya nggak ulang
+    canvasTimerRef.current = setTimeout(() => {
+      setShowCanvas(true);
+    }, 100);
+    return () => {
+      if (canvasTimerRef.current) clearTimeout(canvasTimerRef.current);
+    };
   }, [showContent]);
 
   return (
     <RevealGate enabled timeout={1500}>
-      <main className="relative h-screen w-screen overflow-hidden bg-[#f8f8f8] font-mono text-black"style={{ cursor: "none" }} >
-        {/* Route ready ping (sinkron dengan PixelTransition) */}
+      <main
+        className="relative h-screen w-screen overflow-hidden bg-[#f8f8f8] font-mono text-black"
+        style={{ cursor: "none" }}
+      >
         <RouteReadyPing />
 
         {/* OVERLAY BG ONLY (non-blocking pointer) */}
@@ -197,7 +206,7 @@ export default function Home() {
           className="fixed inset-0 z-[9998] bg-[#f8f8f8] pointer-events-none"
         />
 
-        {/* Small text — dipakai untuk overlay & posisi final (single DOM) */}
+        {/* Small text overlay */}
         <div
           className={`pointer-events-none absolute left-0 top-1/2 ${
             overlayActive ? "z-[9999]" : "z-20"
@@ -208,39 +217,48 @@ export default function Home() {
               overlayCentered ? "justify-center gap-[2px]" : "justify-between"
             } select-none`}
           >
-            {/* MANAMONA (kiri) */}
             <span ref={leftRef} suppressHydrationWarning>
               {overlayActive ? (typed[0] || "") : (typed[0] || texts[0])}
             </span>
-            {/* 2025 (kanan) */}
             <span ref={rightRef} suppressHydrationWarning>
               {overlayActive ? (typed[1] || "") : (typed[1] || texts[1])}
             </span>
           </div>
         </div>
 
-        {/* CONTENT (mounted after overlay timeline) */}
+        {/* CONTENT */}
         {showContent && (
           <div ref={contentRef}>
-            {/* efek yang tidak menghalangi klik */}
+            {/* trail effect */}
             <div className="pointer-events-none">
-              {/* <MouseTrail /> */}
+              <MouseTrail />
             </div>
 
-            {/* Glow blur hijau */}
+            {/* Glow blur hijau (paling belakang) */}
             <div className="absolute inset-0 z-0 flex items-center justify-center">
-              <div className="h-[600px] w-[600px] rounded-full bg-[#D3FB43] blur-[150px] opacity-50" />
+              <div className="h-[600px] w-[600px] rounded-full bg-[#D3FB43] blur-[150px] opacity-10" />
             </div>
 
-            {/* Canvas 3D di depan headline */}
-            <div className="absolute inset-0 z-30 pointer-events-none">
-              <Canvas3D />
-            </div>
+            {/* Headline SVG — pixel grid reveal only (no fade) */}
+            <HeadlineLayer
+              zIndexClass="z-20"
+              layout="centered"
+              width="min(90vw, 720px)"   // bisa juga angka: 880
+              color="#b0b0b0ff"               // bebas atur warna
+              cols={28}
+              duration={0.9}
+            />
+
+            {/* Canvas 3D — muncul 100ms setelah headline mulai, tanpa fade */}
+            {showCanvas && (
+              <div className="absolute inset-0 z-30 pointer-events-none">
+                <Canvas3D />
+              </div>
+            )}
           </div>
         )}
-         {/* ⬇️ Cursor overlay selalu paling atas, tidak menghalangi klik */}
-        {/* <CustomCursor size={24} hotspot={{ x: 2, y: 2 }} src="/cursors/default.svg" /> */}
 
+        {/* <CustomCursor size={24} hotspot={{ x: 2, y: 2 }} src="/cursors/default.svg" /> */}
       </main>
     </RevealGate>
   );

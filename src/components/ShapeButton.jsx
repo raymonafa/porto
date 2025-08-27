@@ -23,7 +23,7 @@ export default function ShapeButton({
     <div
       ref={wrapRef}
       className={`relative block shrink-0 leading-none ${className}`}
-      style={{ width: 112, height: 40 }}
+      style={{ width: 112, height: 44 }}
       data-navbtn
     >
       <TransitionLink

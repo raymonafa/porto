@@ -173,7 +173,7 @@ export default function MouseTrail() {
             width: `${size}px`,
             height: `${size}px`,
             background: "black",
-            color: "white",
+            color: "#D3FB43",
             fontSize: `${size * 0.6}px`,
             fontFamily: "monospace",
             userSelect: "none",

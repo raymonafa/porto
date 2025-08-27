@@ -31,7 +31,7 @@ export default function VoxelFromGLB({
   // reveal
   revealDuration = 0.45,
   revealStagger = 0.006,
-  revealOrder = "center-out", // "random" | "center-out" | "top-down" | "bottom-up"
+  revealOrder = "bottom-up", // "random" | "center-out" | "top-down" | "bottom-up" | "left-right" | "right-left"
   // callbacks
   onBounds,
   onRevealDone,
@@ -193,28 +193,79 @@ export default function VoxelFromGLB({
     // === REVEAL ORDER & OFFSETS (persisten) ===
     const key = `${url}|${revealOrder}|${count}`;
     let store = REVEAL_STORE.get(key);
+
     if (!store || !store.startOffsets || store.startOffsets.length !== count) {
-      const order = new Array(count).fill(0).map((_, i) => i);
-      if (revealOrder === "random") {
-        order.sort(() => Math.random() - 0.5);
-      } else if (revealOrder === "top-down") {
-        order.sort((a, b) => tgtRef.current[b * 3 + 1] - tgtRef.current[a * 3 + 1]);
-      } else if (revealOrder === "bottom-up") {
-        order.sort((a, b) => tgtRef.current[a * 3 + 1] - tgtRef.current[b * 3 + 1]);
-      } else {
-        // "center-out"
-        order.sort((a, b) => {
-          const ax = tgtRef.current[a * 3], ay = tgtRef.current[a * 3 + 1], az = tgtRef.current[a * 3 + 2];
-          const bx = tgtRef.current[b * 3], by = tgtRef.current[b * 3 + 1], bz = tgtRef.current[b * 3 + 2];
-          return (ax*ax + ay*ay + az*az) - (bx*bx + by*by + bz*bz);
-        });
-      }
+      // ---- smoothing: gunakan GRADIENT BERBASIS KOORDINAT + jitter kecil ----
+      // sweep time total (maks offset)
+      const maxStart = Math.max(0, (count - 1) * revealStagger);
       const startOffsets = new Float32Array(count);
-      for (let i = 0; i < order.length; i++) startOffsets[order[i]] = i * revealStagger;
 
-      const maxStart = startOffsets.length ? startOffsets[order[order.length - 1]] : 0;
+      // cari rentang koordinat untuk normalisasi (pakai target positions, sudah terpusat)
+      let minTx = +Infinity, maxTx = -Infinity;
+      let minTy = +Infinity, maxTy = -Infinity;
+      let minTz = +Infinity, maxTz = -Infinity;
+      for (let i = 0; i < count; i++) {
+        const ix = i * 3;
+        const x = tgtRef.current[ix];
+        const y = tgtRef.current[ix + 1];
+        const z = tgtRef.current[ix + 2];
+        if (x < minTx) minTx = x; if (x > maxTx) maxTx = x;
+        if (y < minTy) minTy = y; if (y > maxTy) maxTy = y;
+        if (z < minTz) minTz = z; if (z > maxTz) maxTz = z;
+      }
+      const spanX = Math.max(1e-6, maxTx - minTx);
+      const spanY = Math.max(1e-6, maxTy - minTy);
+      const spanZ = Math.max(1e-6, maxTz - minTz);
+
+      // helper jitter deterministik
+      const jitter = (i) => {
+        const s = Math.sin(i * 12.9898) * 43758.5453;
+        return s - Math.floor(s);
+      };
+
+      // mapping gradient → offset (smoothstep untuk kurangi "step" kasar)
+      const smoothstep = (a, b, x) => {
+        const t = Math.min(1, Math.max(0, (x - a) / Math.max(1e-6, b - a)));
+        return t * t * (3 - 2 * t);
+      };
+
+      for (let i = 0; i < count; i++) {
+        const ix = i * 3;
+        const x = tgtRef.current[ix];
+        const y = tgtRef.current[ix + 1];
+        const z = tgtRef.current[ix + 2];
+
+        // normalisasi
+        const nx = (x - minTx) / spanX;
+        const ny = (y - minTy) / spanY;
+        const nz = (z - minTz) / spanZ;
+
+        // order → gradient
+        let g = 0.0;
+        if (revealOrder === "random") {
+          g = jitter(i);
+        } else if (revealOrder === "top-down") {
+          g = 1.0 - ny; // atas dulu → nilai kecil dulu
+        } else if (revealOrder === "bottom-up") {
+          g = ny;       // bawah → atas
+        } else if (revealOrder === "left-right") {
+          g = nx;
+        } else if (revealOrder === "right-left") {
+          g = 1.0 - nx;
+        } else {
+          // "center-out"
+          const cx = nx - 0.5, cy = ny - 0.5, cz = nz - 0.5;
+          const r = Math.sqrt(cx*cx + cy*cy + cz*cz);
+          g = r / Math.sqrt(0.75); // norm ke ~[0..1]
+        }
+
+        // haluskan gradient + jitter tipis
+        const gs = smoothstep(0, 1, g);
+        const j = (jitter(i) - 0.5) * 0.08; // jitter kecil ±0.04
+        startOffsets[i] = Math.max(0, (gs + j) * maxStart);
+      }
+
       const maxEnd = maxStart + revealDuration;
-
       store = { startOffsets, bornWall: null, maxEnd, firedDone: false };
       REVEAL_STORE.set(key, store);
     }
@@ -467,3 +518,4 @@ function cleanupInstanced(ref) {
 }
 
 useGLTF.preload("/models/3D.glb");
+// src/app/page.js

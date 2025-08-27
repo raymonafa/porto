@@ -6,6 +6,14 @@
   --foreground: #171717;
 }
 
+/* === NAV slots (samain tinggi & ilangin baseline gap) === */
+
+.nav-slot > * {
+  height: 44px;                 /* anak ikut 44px */
+}
+
+
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

@@ -1,3 +1,4 @@
+// src/components/AudioProvider.jsx
 "use client";
 
 import React, {
@@ -31,9 +32,9 @@ export default function AudioProvider({
   const ctxRef     = useRef(null);
   const srcNodeRef = useRef(null);
   const filterRef  = useRef(null);
-  const busGainRef = useRef(null);   // ⬅️ master bus untuk fade
+  const busGainRef = useRef(null);   // master bus untuk fade
 
-  // Buffer untuk efek granular reverse
+  // Buffer granular reverse
   const fwdBufRef  = useRef(null);
   const revBufRef  = useRef(null);
 
@@ -74,7 +75,7 @@ export default function AudioProvider({
       el.removeEventListener("pause", onPause);
       audioRef.current = null;
     };
-  }, [src]);
+  }, [src]); // volume/muted di-apply via effect terpisah
 
   /* ========= Web Audio graph ========= */
   useEffect(() => {
@@ -125,7 +126,6 @@ export default function AudioProvider({
       try { srcNode.disconnect(); } catch {}
       try { busGain.disconnect(); } catch {}
       try { filter.disconnect(); } catch {}
-      // biarkan ctx di-GC
     };
   }, [src]);
 
@@ -167,15 +167,12 @@ export default function AudioProvider({
     if (!g || !ctx) return;
     const now = ctx.currentTime;
     const start = g.value;
-    // gunakan exponentialApproach-ish dengan setTargetAtTime yang smooth
     try {
       g.cancelScheduledValues(now);
       g.setValueAtTime(start, now);
-      // timeConstant kira-kira ~ ms/5 (semakin kecil semakin cepat)
       const timeConstant = Math.max(0.01, (ms / 1000) / 5);
       g.setTargetAtTime(target, now, timeConstant);
     } catch {
-      // fallback langsung
       g.value = target;
     }
   }, []);
@@ -190,12 +187,10 @@ export default function AudioProvider({
   const toggleMuted = useCallback(async () => {
     const next = !muted;
     if (next) {
-      // Mute → fade out, lalu set flag
       fadeBusTo(0, FADE_MS);
       setMuted(true);
       doBroadcast(true);
     } else {
-      // Unmute → pastikan play, lalu fade in
       await play();
       fadeBusTo(1, FADE_MS);
       setMuted(false);
@@ -203,10 +198,9 @@ export default function AudioProvider({
     }
   }, [muted, play, fadeBusTo, doBroadcast]);
 
-  // Setter yang aman: kalau ada komponen lain panggil setMuted, tetap pakai fade
+  // Setter aman (tetap pakai fade)
   const safeSetMuted = useCallback(async (next) => {
     const resolveNext = (prev) => (typeof next === "function" ? !!next(prev) : !!next);
-    // gunakan functional update agar konsisten
     setMuted(async (prev) => {
       const n = resolveNext(prev);
       if (n) {
@@ -220,6 +214,62 @@ export default function AudioProvider({
       return n;
     });
   }, [play, fadeBusTo, doBroadcast]);
+
+  /* ========= Auto-pause when tab not active =========
+     Pause + fade-out saat tab hidden / window blur.
+     Resume + fade-in saat kembali, hanya jika sebelumnya memang playing & tidak muted.
+  */
+  const holdRef = useRef({ held: false, wasPlaying: false, t: null });
+  useEffect(() => {
+    const state = holdRef.current;
+
+    const shouldHold = () => document.hidden || !document.hasFocus();
+
+    const apply = () => {
+      const hold = shouldHold();
+
+      if (hold && !state.held) {
+        state.held = true;
+        state.wasPlaying = !!audioRef.current && !audioRef.current.paused && !muted;
+
+        if (state.wasPlaying) {
+          fadeBusTo(0, 140);
+          clearTimeout(state.t);
+          state.t = setTimeout(() => {
+            try { audioRef.current?.pause(); } catch {}
+          }, 150);
+        }
+      } else if (!hold && state.held) {
+        state.held = false;
+        clearTimeout(state.t);
+
+        if (state.wasPlaying && !muted) {
+          (async () => {
+            try { await play(); } catch {}
+            fadeBusTo(1, 160);
+          })();
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", apply, { passive: true });
+    window.addEventListener("blur",  apply, { passive: true });
+    window.addEventListener("focus", apply, { passive: true });
+    window.addEventListener("pagehide", apply, { passive: true });
+    window.addEventListener("pageshow", apply, { passive: true });
+
+    // initial sync (mis. refresh saat tab di background)
+    apply();
+
+    return () => {
+      document.removeEventListener("visibilitychange", apply);
+      window.removeEventListener("blur", apply);
+      window.removeEventListener("focus", apply);
+      window.removeEventListener("pagehide", apply);
+      window.removeEventListener("pageshow", apply);
+      clearTimeout(state.t);
+    };
+  }, [muted, play, fadeBusTo]);
 
   /* ========= Start rules (overlay / reveal / gesture) — respect mute ========= */
   useEffect(() => {
@@ -294,7 +344,6 @@ export default function AudioProvider({
   useEffect(() => {
     const onVel = (e) => {
       const { vx = 0, vy = 0 } = e.detail || {};
-      // gesture-like: kalau belum play & tidak muted, coba play
       if (!muted && !playing) void play();
       reactSimple(vx, vy);
       if (vx < -4) reverseBurst();
@@ -308,7 +357,7 @@ export default function AudioProvider({
     playing, muted, volume,
     play, pause,
     toggleMuted,
-    setMuted: safeSetMuted,   // ⬅️ setter yang tetap pakai fade
+    setMuted: safeSetMuted,
     setVolume,
   }), [playing, muted, volume, play, pause, toggleMuted, safeSetMuted, setVolume]);
 

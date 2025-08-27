@@ -48,16 +48,18 @@ export default function Navbar() {
   const btn2 = useRef(null);
   const btn3 = useRef(null);
   const btnSound = useRef(null);
+  const btnSocial = useRef(null); // NEW
   const tlRef = useRef(null);
   const playedRef = useRef(false);
 
   useLayoutEffect(() => {
+    const all = [btn1.current, btn2.current, btn3.current, btnSound.current, btnSocial.current];
     if (!isHome) {
-      gsap.set([btn1.current, btn2.current, btn3.current, btnSound.current], { y: 0, opacity: 1, clearProps: "willChange" });
+      gsap.set(all, { y: 0, opacity: 1, clearProps: "willChange" });
       playedRef.current = false;
       return;
     }
-    gsap.set([btn1.current, btn2.current, btn3.current, btnSound.current], { y: 28, opacity: 0, willChange: "transform,opacity" });
+    gsap.set(all, { y: 28, opacity: 0, willChange: "transform,opacity" });
   }, [isHome]);
 
   useEffect(() => {
@@ -65,15 +67,16 @@ export default function Navbar() {
 
     const play = () => {
       if (playedRef.current) return;
-      const els = [btn1.current, btn2.current, btn3.current, btnSound.current];
+      const els = [btn1.current, btn2.current, btn3.current, btnSound.current, btnSocial.current];
       if (els.some(e => !e)) return;
 
       if (tlRef.current) tlRef.current.kill();
       tlRef.current = gsap.timeline({ defaults: { ease: "power4.inOut" } })
-        .to(btn1.current,   { y: 0, opacity: 1, duration: 0.8 }, 0.00)
-        .to(btn2.current,   { y: 0, opacity: 1, duration: 0.8 }, 0.12)
-        .to(btn3.current,   { y: 0, opacity: 1, duration: 0.8 }, 0.24)
-        .to(btnSound.current,{ y: 0, opacity: 1, duration: 0.8 }, 0.36)
+        .to(btn1.current,     { y: 0, opacity: 1, duration: 0.8 }, 0.00)
+        .to(btn2.current,     { y: 0, opacity: 1, duration: 0.8 }, 0.12)
+        .to(btn3.current,     { y: 0, opacity: 1, duration: 0.8 }, 0.24)
+        .to(btnSound.current, { y: 0, opacity: 1, duration: 0.8 }, 0.36)
+        .to(btnSocial.current,{ y: 0, opacity: 1, duration: 0.8 }, 0.48)
         .add(() => {
           gsap.set(els, { clearProps: "willChange" });
           playedRef.current = true;
@@ -82,7 +85,7 @@ export default function Navbar() {
 
     const onReveal = () => play();
     window.addEventListener("mm:reveal:nav", onReveal);
-    const fallback = setTimeout(play, 2200); // sedikit lebih lambat supaya pas momennya
+    const fallback = setTimeout(play, 2200);
 
     return () => {
       window.removeEventListener("mm:reveal:nav", onReveal);
@@ -91,11 +94,14 @@ export default function Navbar() {
     };
   }, [isHome]);
 
-  // nav utama (tengah bawah)
+  const sosmedSrc = "/buttons/sosmed.svg";
+  const linkedinSrc = "/icons/Linkedin.svg";
+
   return (
     <>
+      {/* nav utama (tengah bawah) */}
       <nav
-        className="fixed bottom-7 left-1/2 -translate-x-1/2 z-[12000] flex items-center gap-px pointer-events-auto"
+        className="fixed bottom-6  left-1/2 -translate-x-1/2 z-[12000] flex items-center gap-px pointer-events-auto"
         data-suppress-trail
       >
         <div ref={btn1} className="inline-block">
@@ -132,14 +138,30 @@ export default function Navbar() {
         </div>
       </nav>
 
-      {/* Toggle audio: kiri-bawah, ikut reveal timeline */}
+      {/* Toggle audio: kiri-bawah */}
       <div
         ref={btnSound}
-        className="fixed bottom-6 z-[12000] pointer-events-auto select-none"
+        className="fixed bottom-6 left-0 z-[12000] pointer-events-auto select-none"
         data-suppress-trail
       >
-      <SoundToggle className="ml-2 top-0" iconSize={20} rows={3} />
+        <SoundToggle className="ml-0 top-0" iconSize={20} rows={3} />
       </div>
+
+      {/* Sosmed: kanan-bawah (satu kesatuan dengan action) */}
+      <a
+        ref={btnSocial}
+        href="https://www.linkedin.com"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="fixed bottom-6 right-6 z-[12000] pointer-events-auto select-none"
+        aria-label="LinkedIn"
+        data-suppress-trail
+      >
+        <span className="relative inline-block align-middle" style={{ width: 44, height: 44 }}>
+          <img src={sosmedSrc} alt="" className="absolute  w-full h-full" draggable={false} />
+          <img src={linkedinSrc} alt="LinkedIn" className="absolute inset-0 m-auto w-[20px] h-[20px]" draggable={false} />
+        </span>
+      </a>
     </>
   );
 }

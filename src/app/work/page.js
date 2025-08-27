@@ -18,21 +18,18 @@ export default function WorksPage() {
 
       {/* CRT overlay (opsional) — sudah pointer-events:none di komponennya */}
       <CRTRetroOverlay
-        opacity={0.34}
-        noise={0.22}
-        scanline={0.2}
-        bleed={0.18}
-        speed={0.2}          // cepat-lambat 2 garis
-        thickness={0.03}     // ketebalan garis (0.01 tipis, 0.05 tebal)
-        glitchStrength={1.4} // intensitas cahaya pada garis
-        rgbSplit={0.8}       // “chromatic glitch”
+        opacity={0.24}
+        noise={0.44}
+        scanline={0.44}
+        bleed={0.24}
+        speed={0.4}          // cepat-lambat 2 garis
+        thickness={0.05}     // ketebalan garis (0.01 tipis, 0.05 tebal)
+        glitchStrength={1.8} // intensitas cahaya pada garis
+        rgbSplit={24}       // “chromatic glitch”
         blendMode="screen"
         zIndex={9999}
       />
 
-      <div className="pointer-events-none absolute top-6 left-6 z-20 text-sm opacity-70 select-none">
-        <span>[WORKS]</span>
-      </div>
 
       {/* RevealGate: unhide setelah overlay transition selesai */}
       <RevealGate enabled timeout={1500}>
